@@ -1,0 +1,40 @@
+{
+	"name": "ESP-IDF",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"idf.showOnboardingOnInit": false,
+				"idf.toolsPath": "/opt/esp",
+				"idf.espIdfPath": "/opt/esp/idf",
+				"terminal.integrated.shell.linux": "/bin/bash"
+			},
+			"extensions": [
+				"espressif.esp-idf-extension",
+				"ms-vscode.cmake-tools",
+				"ms-vscode.cpptools"
+			]
+		}
+	},
+
+	"userEnvProbe": "loginInteractiveShell",
+
+	// Required for USB/Serial access from the host machine
+	"runArgs": [
+		"--privileged",
+		"-v", "/dev:/dev",
+		"-v", "/etc/udev/rules.d:/etc/udev/rules.d"
+	],
+
+	// Mount VS Code extensions separately to persist them across container rebuilds
+	"mounts": [
+		{
+			"source": "vscode-extensions",
+			"target": "/root/.vscode-server/extensions",
+			"type": "volume"
+		}
+	]
+}

@@ -1,0 +1,14 @@
+{
+    "idf.pythonInstallPath": "/opt/esp/python_env/idf5.3_py3.10_env/bin/python",
+    "idf.customExtraVars": {
+        "IDF_TARGET": "esp32s3"
+    },
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ],
+    "cmake.sourceDirectory": "/workspaces/smart-dog-collar/project-name",
+    "C_Cpp.intelliSenseEngine": "default",
+    "idf.espIdfPath": "/opt/esp/idf",
+    "idf.toolsPath": "/opt/esp",
+    "cmake.ignoreCMakeListsMissing": true
+}

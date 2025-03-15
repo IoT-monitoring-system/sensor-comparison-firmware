@@ -1,0 +1,18 @@
+[submodule "components/CayenneLPP"]
+	path = components/CayenneLPP
+	url = https://github.com/xl9p/CayenneLPP.git
+[submodule "components/RadioLib"]
+	path = components/RadioLib
+	url = https://github.com/xl9p/RadioLib.git
+	branch = master
+[submodule "components/arduino"]
+	path = components/arduino
+	url = https://github.com/xl9p/arduino-esp32.git
+	branch = master
+[submodule "components/Adafruit_NeoPixel"]
+	path = components/Adafruit_NeoPixel
+	url = https://github.com/xl9p/Adafruit_NeoPixel.git
+[submodule "svd_files"]
+	path = svd_files
+	url = https://github.com/espressif/svd.git
+	branch = main
