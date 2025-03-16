@@ -23,5 +23,8 @@
 [submodule "components/Adafruit_INA260"]
 	path = components/Adafruit_INA260
 	url = https://github.com/xl9p/Adafruit_INA260.git
-
+[submodule "components/SparkFun_ADXL345"]
+	path = components/SparkFun_ADXL345
+	url = https://github.com/xl9p/SparkFun_ADXL345_Arduino_Library.git
+	branch = i2c_custom_mod
 
