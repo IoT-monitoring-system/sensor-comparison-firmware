@@ -36,6 +36,8 @@
 *.app
 
 build
+build.clang
+.cache
 managed_components
 sdkconfig
 sdkconfig.old
