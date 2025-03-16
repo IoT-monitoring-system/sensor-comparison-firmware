@@ -1,14 +1,89 @@
 {
-    "idf.pythonInstallPath": "/opt/esp/python_env/idf5.3_py3.10_env/bin/python",
-    "idf.customExtraVars": {
-        "IDF_TARGET": "esp32s3"
+    "clangd.arguments": [
+        "--background-index",
+        "--clang-tidy",
+        "--header-insertion=never",
+        "--suggest-missing-includes",
+        "--pch-storage=memory",
+        "--compile-commands-dir=${workspaceFolder}/build.clang"
+    ],
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "clangd.path": "/opt/esp/tools/esp-clang/15.0.0-23786128ae/esp-clang/bin/clangd",
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "editor.indentSize": 2,
+    "[c]": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.indentSize": 2
     },
+    "[cpp]": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.indentSize": 2
+    },
+    "[json]": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.indentSize": 2
+    },
+    "idf.adapterTargetName": "esp32s3",
     "idf.openOcdConfigs": [
         "board/esp32s3-builtin.cfg"
     ],
-    "cmake.sourceDirectory": "/workspaces/smart-dog-collar/project-name",
-    "C_Cpp.intelliSenseEngine": "default",
-    "idf.espIdfPath": "/opt/esp/idf",
-    "idf.toolsPath": "/opt/esp",
-    "cmake.ignoreCMakeListsMissing": true
+    "cmake.configureOnOpen": true,
+    "idf.flashType": "JTAG",
+    "idf.port": "/dev/ttyACM0",
+    "files.associations": {
+        "array": "cpp",
+        "atomic": "cpp",
+        "bit": "cpp",
+        "*.tcc": "cpp",
+        "cctype": "cpp",
+        "clocale": "cpp",
+        "cmath": "cpp",
+        "compare": "cpp",
+        "concepts": "cpp",
+        "cstdarg": "cpp",
+        "cstddef": "cpp",
+        "cstdint": "cpp",
+        "cstdio": "cpp",
+        "cstdlib": "cpp",
+        "cwchar": "cpp",
+        "cwctype": "cpp",
+        "deque": "cpp",
+        "string": "cpp",
+        "unordered_map": "cpp",
+        "vector": "cpp",
+        "exception": "cpp",
+        "algorithm": "cpp",
+        "functional": "cpp",
+        "iterator": "cpp",
+        "memory": "cpp",
+        "memory_resource": "cpp",
+        "numeric": "cpp",
+        "random": "cpp",
+        "string_view": "cpp",
+        "system_error": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "initializer_list": "cpp",
+        "iosfwd": "cpp",
+        "limits": "cpp",
+        "new": "cpp",
+        "numbers": "cpp",
+        "ostream": "cpp",
+        "stdexcept": "cpp",
+        "streambuf": "cpp",
+        "cinttypes": "cpp",
+        "typeinfo": "cpp",
+        "variant": "cpp"
+    },
+    "idf.pythonInstallPath": "/opt/esp/python_env/idf5.1_py3.8_env/bin/python",
+    "idf.customExtraVars": {
+        "IDF_TARGET": "esp32s3"
+    } //,
+    // "idf.svdFilePath": "${workspaceFolder}/svd-main/svd/${IDF_TARGET}.svd"
 }

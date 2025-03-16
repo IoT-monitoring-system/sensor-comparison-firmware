@@ -3,15 +3,17 @@
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
-
+	// TODO: Mount extensions cache volume separately from other containers
 	"customizations": {
 		"vscode": {
+			// * Pre-configure ESP-IDF extension
 			"settings": {
 				"idf.showOnboardingOnInit": false,
 				"idf.toolsPath": "/opt/esp",
 				"idf.espIdfPath": "/opt/esp/idf",
 				"terminal.integrated.shell.linux": "/bin/bash"
 			},
+			// * Install relevant extensions in the dev container
 			"extensions": [
 				"espressif.esp-idf-extension",
 				"ms-vscode.cmake-tools",
@@ -19,22 +21,18 @@
 			]
 		}
 	},
-
 	"userEnvProbe": "loginInteractiveShell",
-
-	// Required for USB/Serial access from the host machine
+	// * Required for USB/Serial access from the host machine
 	"runArgs": [
 		"--privileged",
-		"-v", "/dev:/dev",
-		"-v", "/etc/udev/rules.d:/etc/udev/rules.d"
+		"-v",
+		"/dev:/dev",
+		"-v",
+		"/etc/udev/rules.d:/etc/udev/rules.d"
 	],
-
 	// Mount VS Code extensions separately to persist them across container rebuilds
 	"mounts": [
-		{
-			"source": "vscode-extensions",
-			"target": "/root/.vscode-server/extensions",
-			"type": "volume"
-		}
+		"source=vscode-${localWorkspaceFolderBasename}-extensions,target=/root/.vscode-server/extensions,type=volume",
+		"source=vscode-${localWorkspaceFolderBasename}-userdata,target=/root/.vscode-server/userdata,type=volume"
 	]
 }
