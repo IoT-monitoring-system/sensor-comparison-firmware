@@ -1,0 +1,23 @@
+dependencies:
+  idf: ">=5.1,<5.2"
+  RadioLib:
+    git: https://github.com/xl9p/RadioLib.git
+    version: master
+  arduino:
+    git: https://github.com/xl9p/arduino-esp32.git
+    version: i2c_mutex_mod
+  CayenneLPP:
+    git: https://github.com/ElectronicCats/CayenneLPP.git
+    version: master
+  Adafruit_NeoPixel:
+    git: https://github.com/xl9p/Adafruit_NeoPixel.git
+    version: master
+  Adafruit_BusIO:
+    git: https://github.com/xl9p/Adafruit_BusIO.git
+    version: modified
+  Adafruit_INA260:
+    git: https://github.com/xl9p/Adafruit_INA260.git
+    version: master
+  Sparkfun_ADXL345:
+    git: https://github.com/xl9p/SparkFun_ADXL345_Arduino_Library.git
+    version: i2c_custom_mod

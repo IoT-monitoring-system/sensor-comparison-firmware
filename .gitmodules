@@ -8,7 +8,7 @@
 [submodule "components/arduino"]
 	path = components/arduino
 	url = https://github.com/xl9p/arduino-esp32.git
-	branch = master
+	branch = i2c_mutex_mod
 [submodule "components/Adafruit_NeoPixel"]
 	path = components/Adafruit_NeoPixel
 	url = https://github.com/xl9p/Adafruit_NeoPixel.git
@@ -16,3 +16,15 @@
 	path = svd_files
 	url = https://github.com/espressif/svd.git
 	branch = main
+[submodule "components/Adafruit_BusIO"]
+	path = components/Adafruit_BusIO
+	url = https://github.com/xl9p/Adafruit_BusIO.git
+	branch = modified
+[submodule "components/Adafruit_INA260"]
+	path = components/Adafruit_INA260
+	url = https://github.com/xl9p/Adafruit_INA260.git
+[submodule "components/SparkFun_ADXL345"]
+	path = components/SparkFun_ADXL345
+	url = https://github.com/xl9p/SparkFun_ADXL345_Arduino_Library.git
+	branch = i2c_custom_mod
+
