@@ -1,18 +1,18 @@
 dependencies:
   Adafruit_BusIO:
-    component_hash: 5c325634b29c2f0d53276559f6145910900f3768329497e43a6b4d0044a6f06f
+    component_hash: 98eb16791351f0c4039adb0a9397272b75631461bdfc79eaa0f6c232cf8d7dec
     source:
-      git: https://github.com/adafruit/Adafruit_BusIO.git
+      git: https://github.com/xl9p/Adafruit_BusIO.git
       path: .
       type: git
-    version: 055013b58dab9c3f1e016c75aac6eafb58e8d789
+    version: b052ce478de8f3a8691f7a904fe28fb87ee1ff09
   Adafruit_INA260:
-    component_hash: 16b69dd8096e6f18ce855eb463c64dda676038a392b81b2458fd521defca7d5c
+    component_hash: 8e6839733bd2aac15f1773b3fd08167d283cee26e6276ee19db36f3f8f2591a6
     source:
       git: https://github.com/xl9p/Adafruit_INA260.git
       path: .
       type: git
-    version: d0eff58d0b97489ecb65d1e3082ce1059186ba86
+    version: 9d4138fd444b92db26129c6b086a8b121286a926
   Adafruit_NeoPixel:
     component_hash: 93619dd0d4aa55eec84ef5cc4ae02878aa313fa1c8cd3330c373fbf8e0b67179
     source:
@@ -63,6 +63,6 @@ dependencies:
     source:
       type: idf
     version: 5.1.4
-manifest_hash: d60d67d324227dc5898f701229193a408dbcd4aa796357c30fbf256ae59a171a
+manifest_hash: 600f66e3eb85a17e3b9df65eaa77745ee9263de697eefba904e6e1c86f5ea1e0
 target: esp32s3
 version: 1.0.0
