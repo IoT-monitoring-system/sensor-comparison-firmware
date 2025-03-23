@@ -28,3 +28,6 @@
 	url = https://github.com/xl9p/SparkFun_ADXL345_Arduino_Library.git
 	branch = i2c_custom_mod
 
+[submodule "components/pubsubclient"]
+	path = components/pubsubclient
+	url = https://github.com/xl9p/pubsubclient.git
