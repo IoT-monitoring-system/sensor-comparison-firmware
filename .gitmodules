@@ -31,3 +31,6 @@
 [submodule "components/pubsubclient"]
 	path = components/pubsubclient
 	url = https://github.com/xl9p/pubsubclient.git
+[submodule "components/CSE_GNSS"]
+	path = components/CSE_GNSS
+	url = https://github.com/xl9p/CSE_GNSS.git
