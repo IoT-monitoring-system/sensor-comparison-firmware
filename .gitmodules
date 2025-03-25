@@ -33,3 +33,4 @@
 [submodule "components/Adafruit_NeoPixel"]
 	path = components/Adafruit_NeoPixel
 	url = git@github.com:xl9p/Adafruit_NeoPixel.git
+	branch = v1.12.3_with_build_files
