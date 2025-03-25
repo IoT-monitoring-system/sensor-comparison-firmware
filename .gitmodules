@@ -30,3 +30,6 @@
 [submodule "components/CSE_GNSS"]
 	path = components/CSE_GNSS
 	url = https://github.com/xl9p/CSE_GNSS.git
+[submodule "components/Adafruit_NeoPixel"]
+	path = components/Adafruit_NeoPixel
+	url = git@github.com:xl9p/Adafruit_NeoPixel.git
