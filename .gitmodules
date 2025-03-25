@@ -9,9 +9,6 @@
 	path = components/arduino
 	url = https://github.com/xl9p/arduino-esp32.git
 	branch = i2c_mutex_mod
-[submodule "components/Adafruit_NeoPixel"]
-	path = components/Adafruit_NeoPixel
-	url = https://github.com/xl9p/Adafruit_NeoPixel.git
 [submodule "svd_files"]
 	path = svd_files
 	url = https://github.com/espressif/svd.git
@@ -27,10 +24,10 @@
 	path = components/SparkFun_ADXL345
 	url = https://github.com/xl9p/SparkFun_ADXL345_Arduino_Library.git
 	branch = i2c_custom_mod
-
 [submodule "components/pubsubclient"]
 	path = components/pubsubclient
 	url = https://github.com/xl9p/pubsubclient.git
 [submodule "components/CSE_GNSS"]
 	path = components/CSE_GNSS
 	url = https://github.com/xl9p/CSE_GNSS.git
+
