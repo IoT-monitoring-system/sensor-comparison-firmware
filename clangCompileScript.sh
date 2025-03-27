@@ -1,0 +1,1 @@
+idf.py -B build.clang -D IDF_TOOLCHAIN=clang reconfigure && idf.py -B build.clang -D IDF_TOOLCHAIN=clang build
