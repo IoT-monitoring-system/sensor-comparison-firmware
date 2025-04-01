@@ -8,39 +8,32 @@
 
 class MeasurementModule {
 public:
-  MeasurementModule();
-  ~MeasurementModule();
-
   /**
    * @brief Configure the module.
    *
    */
-  void configure();
+  esp_err_t configure();
 
   /**
    * @brief Start, start the measurement after the configuration.
    *
    */
-  void start();
+  esp_err_t start();
 
   /**
    * @brief Stop, temporarily stop the execution.
    *
    */
-  void stop();
+  esp_err_t stop();
 
-  /**
-   * @brief Terminate, free all resources.
-   *
-   */
-  void terminate();
+  esp_err_t addMeasurementTask(MeasurementTask *measurementTask);
+  esp_err_t removeMeasurementTask(MeasurementTask *measurementTask);
 
-  void addMeasurementTask(MeasurementTask *measurementTask);
-
-  void removeMeasurementTask(MeasurementTask *measurementTask);
+  uint32_t getTotalNumTasks();
+  uint32_t getNumTasksRunning();
 
 private:
-  std::vector<MeasurementTask *> tasks{};
+  std::vector<MeasurementTask *> tasks;
 };
 
 #endif
