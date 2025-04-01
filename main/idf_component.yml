@@ -9,9 +9,6 @@ dependencies:
   CayenneLPP:
     git: https://github.com/ElectronicCats/CayenneLPP.git
     version: master
-  Adafruit_NeoPixel:
-    git: https://github.com/xl9p/Adafruit_NeoPixel.git
-    version: master
   Adafruit_BusIO:
     git: https://github.com/xl9p/Adafruit_BusIO.git
     version: modified
@@ -21,3 +18,6 @@ dependencies:
   SparkFun_ADXL345:
     git: https://github.com/xl9p/SparkFun_ADXL345_Arduino_Library.git
     version: i2c_custom_mod
+  Adafruit_NeoPixel:
+    git: git@github.com:xl9p/Adafruit_NeoPixel.git
+    version: v1.12.3_with_build_files
