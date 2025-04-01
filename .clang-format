@@ -1,0 +1,9 @@
+BasedOnStyle: LLVM
+AlwaysBreakAfterReturnType: None
+AlignAfterOpenBracket: AlwaysBreak
+BinPackArguments: false
+BinPackParameters: false
+PenaltyBreakBeforeFirstCallParameter: 100
+PenaltyReturnTypeOnItsOwnLine: 1000000
+ExperimentalAutoDetectBinPacking: false
+AllowAllParametersOfDeclarationOnNextLine: false
