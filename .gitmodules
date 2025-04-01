@@ -37,6 +37,8 @@
 [submodule "components/BME68xLibrary"]
 	path = components/BME68xLibrary
 	url = git@github.com:xl9p/BME68xLibrary.git
+	branch = modified
 [submodule "components/BSEC2Library"]
 	path = components/BSEC2Library
 	url = git@github.com:xl9p/BSEC2Library.git
+	branch = modified
