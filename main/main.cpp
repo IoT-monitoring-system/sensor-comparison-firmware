@@ -16,6 +16,7 @@
 #include "Adafruit_INA260.h"
 #include "Adafruit_NeoPixel.h"
 
+#include "MeasurementDatatypes.h"
 #include "MeasurementModule.h"
 #include "MeasurementTask.h"
 
@@ -37,19 +38,22 @@ extern "C" void app_main();
 
 // esp_register_shutdown_handler
 
-EventConsumer<measurement_task_event>
-    eventHandlerCurrent{200U, RINGBUF_TYPE_NOSPLIT, pdMS_TO_TICKS(1000)};
-EventConsumer<measurement_task_event>
-    eventHandlerVoltage{200U, RINGBUF_TYPE_NOSPLIT, pdMS_TO_TICKS(1000)};
-EventConsumer<measurement_task_event>
-    eventHandlerPower{200U, RINGBUF_TYPE_NOSPLIT, pdMS_TO_TICKS(1000)};
+using INA260Data = MeasurementTaskData<VoltageData, CurrentData, PowerData>;
+using ADXL345Data = MeasurementTaskData<>;
+using BME688Data = MeasurementTaskData<>;
 
-// MeasurementModule measurementModule;
+MeasurementModule measurementModule{};
 
 MeasurementTask ADXL345MeasurementTask{};
 MeasurementTask BME688MeasurementTask{};
-
 MeasurementTask INA260MeasurementTask{};
+
+EventConsumer<MeasurementTaskEvent>
+    INA260EventConsumer{200U, RINGBUF_TYPE_NOSPLIT, pdMS_TO_TICKS(1000)};
+EventConsumer<MeasurementTaskEvent>
+    ADXL345EventConsumer{200U, RINGBUF_TYPE_NOSPLIT, pdMS_TO_TICKS(1000)};
+EventConsumer<MeasurementTaskEvent>
+    BME688EventConsumer{200U, RINGBUF_TYPE_NOSPLIT, pdMS_TO_TICKS(1000)};
 
 TwoWire i2c_bus(0);
 
@@ -87,11 +91,11 @@ void *INA260MeasurementFunc(void *pvParameter) {
   return data;
 }
 
-void ina260CurrentProcessingTask(void *pvParameter) {
-  struct EventDescriptor<measurement_task_event> *item;
+void ina260ProcessingTask(void *pvParameter) {
+  struct EventDescriptor<MeasurementTaskEvent> *item;
   while (1) {
-    while (eventHandlerCurrent.receiveEvent(
-               sizeof(struct EventDescriptor<measurement_task_event>),
+    while (INA260EventConsumer.listenForEvents(
+               sizeof(struct EventDescriptor<MeasurementTaskEvent>),
                &item,
                portMAX_DELAY) != ESP_OK)
       ;
@@ -101,52 +105,6 @@ void ina260CurrentProcessingTask(void *pvParameter) {
 
       if (data->size > 0) {
         ESP_LOGI(TAG, "Current: %fmA", data->current);
-      }
-    }
-
-    if (item->data) {
-      free(item->data);
-    }
-    free(item);
-  }
-}
-void ina260PowerProcessingTask(void *pvParameter) {
-  struct EventDescriptor<measurement_task_event> *item;
-  while (1) {
-    while (eventHandlerPower.receiveEvent(
-               sizeof(struct EventDescriptor<measurement_task_event>),
-               &item,
-               portMAX_DELAY) != ESP_OK)
-      ;
-
-    if (item->event == MEASUREMENT_TASK_DATA_UPDATE_EVENT) {
-      INA260Data *data = static_cast<INA260Data *>(item->data);
-
-      if (data->size > 0) {
-        ESP_LOGI(TAG, "Power: %fmW", data->power);
-      }
-    }
-
-    if (item->data) {
-      free(item->data);
-    }
-    free(item);
-  }
-}
-void ina260VoltageProcessingTask(void *pvParameter) {
-  struct EventDescriptor<measurement_task_event> *item;
-  while (1) {
-    while (eventHandlerVoltage.receiveEvent(
-               sizeof(struct EventDescriptor<measurement_task_event>),
-               &item,
-               portMAX_DELAY) != ESP_OK)
-      ;
-
-    if (item->event == MEASUREMENT_TASK_DATA_UPDATE_EVENT) {
-      INA260Data *data = static_cast<INA260Data *>(item->data);
-
-      if (data->size > 0) {
-        ESP_LOGI(TAG, "Voltage: %fmV", data->voltage);
       }
     }
 
@@ -168,7 +126,7 @@ void initINA260(void) {
   ina260.setVoltageConversionTime(INA260_TIME_1_1_ms);
   ina260.setAveragingCount(INA260_COUNT_1);
 
-  measurement_task_config taskConfig{
+  MeasurementTaskConfig taskConfig{
       .pollingRate = CONFIG_TELE_INA260_SAMPLING_FREQUENCY,
       .usStackDepth = 2632U,
       .xCoreID = 0U,
@@ -176,8 +134,9 @@ void initINA260(void) {
       .pcName = (char *)"INA260",
   };
 
-  measurement_task_eventloop_config eventloopConfig{
+  MeasurementTaskEventloopConfig eventloopConfig{
       .sendWaitTicks = pdMS_TO_TICKS(5000),
+      .accessWaitTicks = pdMS_TO_TICKS(1000),
       .receiveWaitTicks = pdMS_TO_TICKS(10000),
   };
 
@@ -196,12 +155,6 @@ void initINA260(void) {
 
   Serial.println("INA260 Initialized");
   vTaskDelay(pdMS_TO_TICKS(1000));
-
-  // void setAlertLimit(float limit);
-  // void setAlertLatch(INA260_AlertLatch state);
-  // void setAlertPolarity(INA260_AlertPolarity polarity);
-  // void setAlertType(INA260_AlertType alert);
-  // Setup ISR for pin Alert
 }
 /* #endregion */
 
@@ -240,26 +193,85 @@ void app_main() {
 
   xTaskCreatePinnedToCore(&ws2812b_cycler, "led", 2048, NULL, 3, NULL, 0);
   xTaskCreatePinnedToCore(
-      &ina260CurrentProcessingTask, "ina260cur", 3072, NULL, 4, NULL, 0);
-  xTaskCreatePinnedToCore(
-      &ina260VoltageProcessingTask, "ina260vol", 3072, NULL, 4, NULL, 0);
-  xTaskCreatePinnedToCore(
-      &ina260PowerProcessingTask, "ina260pow", 3072, NULL, 4, NULL, 0);
+      &ina260ProcessingTask, "ina260prcs", 3072, NULL, 4, NULL, 0);
+  // xTaskCreatePinnedToCore(
+  //     &, "", 3072, NULL, 4, NULL, 0);
+  // xTaskCreatePinnedToCore(
+  //     &, "", 3072, NULL, 4, NULL, 0);
 
   esp_err_t res;
 
-  res = INA260MeasurementTask.registerEventHandler(
-      &eventHandlerCurrent, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
-  res = INA260MeasurementTask.registerEventHandler(
-      &eventHandlerVoltage, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
-  res = INA260MeasurementTask.registerEventHandler(
-      &eventHandlerPower, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
-  res = INA260MeasurementTask.unregisterEventHandler(
-      &eventHandlerPower, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
-
-  res = INA260MeasurementTask.start();
+  res = INA260MeasurementTask.registerEventConsumer(
+      &INA260EventConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
   if (res != ESP_OK) {
-    ESP_LOGE(TAG, "INA260MeasurementTask.start() failed");
+    ESP_LOGE(
+        TAG,
+        "INA260MeasurementTask.registerEventConsumer(eventConsumerCurrent) "
+        "failed");
+    return;
+  }
+
+  ESP_LOGI(TAG, "Registered event consumers%s", "");
+
+  res = measurementModule.addMeasurementTask(&INA260MeasurementTask);
+  if (res != ESP_OK) {
+    ESP_LOGE(
+        TAG,
+        "measurementModule.addMeasurementTask(INA260MeasurementTask) failed");
+    return;
+  }
+  res = measurementModule.addMeasurementTask(&ADXL345MeasurementTask);
+  if (res != ESP_OK) {
+    ESP_LOGE(
+        TAG,
+        "measurementModule.addMeasurementTask(ADXL345MeasurementTask) failed");
+    return;
+  }
+  res = measurementModule.addMeasurementTask(&BME688MeasurementTask);
+  if (res != ESP_OK) {
+    ESP_LOGE(
+        TAG,
+        "measurementModule.addMeasurementTask(BME688MeasurementTask) failed");
+    return;
+  }
+
+  ESP_LOGI(TAG, "Added measurement task%s", "");
+
+  res = measurementModule.configure();
+  if (res != ESP_OK) {
+    ESP_LOGE(TAG, "measurementModule.configure() failed");
+    return;
+  }
+  ESP_LOGI(TAG, "Configured measurement module%s", "");
+
+  res = measurementModule.start();
+  if (res != ESP_OK) {
+    ESP_LOGE(TAG, "measurementModule.start() failed");
+    return;
+  }
+  ESP_LOGI(TAG, "Started measurement module%s", "");
+
+  vTaskDelay(pdMS_TO_TICKS(10000));
+  ESP_LOGI(TAG, "Stopping%s", "");
+  res = measurementModule.stop();
+  if (res != ESP_OK) {
+    ESP_LOGE(TAG, "measurementModule.stop() failed");
+    return;
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(3000));
+  ESP_LOGI(TAG, "Starting%s", "");
+  res = measurementModule.start();
+  if (res != ESP_OK) {
+    ESP_LOGE(TAG, "measurementModule.start() failed");
+    return;
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(5000));
+  ESP_LOGI(TAG, "Stopping%s", "");
+  res = measurementModule.stop();
+  if (res != ESP_OK) {
+    ESP_LOGE(TAG, "measurementModule.stop() failed");
     return;
   }
 }
