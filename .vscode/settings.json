@@ -1,33 +1,27 @@
 {
+    "clangd.path": "/opt/esp/tools/esp-clang/15.0.0-23786128ae/esp-clang/bin/clangd",
     "clangd.arguments": [
+        "--enable-config",
         "--background-index",
         "--clang-tidy",
         "--header-insertion=never",
         "--suggest-missing-includes",
         "--pch-storage=memory",
-        "--compile-commands-dir=${workspaceFolder}/build.clang"
+        "--compile-commands-dir=${workspaceFolder}/build.clang",
+        "--fallback-style=none"
     ],
     "C_Cpp.intelliSenseEngine": "disabled",
-    "clangd.path": "/opt/esp/tools/esp-clang/15.0.0-23786128ae/esp-clang/bin/clangd",
-    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    "[cpp]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+    },
+    "[c]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+    },
+    "editor.formatOnSave": true,
+    "editor.formatOnType": true,
     "editor.tabSize": 2,
     "editor.insertSpaces": true,
     "editor.indentSize": 2,
-    "[c]": {
-        "editor.tabSize": 2,
-        "editor.insertSpaces": true,
-        "editor.indentSize": 2
-    },
-    "[cpp]": {
-        "editor.tabSize": 2,
-        "editor.insertSpaces": true,
-        "editor.indentSize": 2
-    },
-    "[json]": {
-        "editor.tabSize": 2,
-        "editor.insertSpaces": true,
-        "editor.indentSize": 2
-    },
     "idf.adapterTargetName": "esp32s3",
     "idf.openOcdConfigs": [
         "board/esp32s3-builtin.cfg"

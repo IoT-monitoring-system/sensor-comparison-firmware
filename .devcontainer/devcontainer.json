@@ -17,7 +17,7 @@
 			"extensions": [
 				"espressif.esp-idf-extension",
 				"ms-vscode.cmake-tools",
-				"ms-vscode.cpptools"
+				"llvm-vs-code-extensions.vscode-clangd"
 			]
 		}
 	},
@@ -33,6 +33,7 @@
 	// Mount VS Code extensions separately to persist them across container rebuilds
 	"mounts": [
 		"source=vscode-${localWorkspaceFolderBasename}-extensions,target=/root/.vscode-server/extensions,type=volume",
-		"source=vscode-${localWorkspaceFolderBasename}-userdata,target=/root/.vscode-server/userdata,type=volume"
+		"source=vscode-${localWorkspaceFolderBasename}-userdata,target=/root/.vscode-server/userdata,type=volume",
+		"source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached"
 	]
 }
