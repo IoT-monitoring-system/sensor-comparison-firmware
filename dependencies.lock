@@ -1,11 +1,11 @@
 dependencies:
   Adafruit_BusIO:
-    component_hash: 98eb16791351f0c4039adb0a9397272b75631461bdfc79eaa0f6c232cf8d7dec
+    component_hash: de122cc11ae8d16ead2573195362272c4b138b8f0eb1e3fa6039bb8ed3b4bbb8
     source:
       git: https://github.com/xl9p/Adafruit_BusIO.git
       path: .
       type: git
-    version: b052ce478de8f3a8691f7a904fe28fb87ee1ff09
+    version: df5d0055cd3ca4b25c6ae048771d04986ada5618
   Adafruit_INA260:
     component_hash: 8e6839733bd2aac15f1773b3fd08167d283cee26e6276ee19db36f3f8f2591a6
     source:
@@ -14,22 +14,22 @@ dependencies:
       type: git
     version: 9d4138fd444b92db26129c6b086a8b121286a926
   Adafruit_NeoPixel:
-    component_hash: 93619dd0d4aa55eec84ef5cc4ae02878aa313fa1c8cd3330c373fbf8e0b67179
+    component_hash: 2b790a8ef0123ca42a110262fe432afa123feba7cae7b253df25c7917c59634e
     source:
-      git: https://github.com/xl9p/Adafruit_NeoPixel.git
+      git: git@github.com:xl9p/Adafruit_NeoPixel.git
       path: .
       type: git
-    version: 7ae72c9edf1115dfb7b8f89a223874cbbfc85910
+    version: 5b342d55689a7afb1c9b23f57551b73d3761eb80
   CayenneLPP:
     component_hash: null
     source:
-      path: /workspaces/smart-dog-collar_tracker_espidf-v5.1.4/components/CayenneLPP
+      path: /workspaces/node-firmware_espidf-v5.1.4/components/CayenneLPP
       type: local
     version: 1.4.0
   RadioLib:
     component_hash: null
     source:
-      path: /workspaces/smart-dog-collar_tracker_espidf-v5.1.4/components/RadioLib
+      path: /workspaces/node-firmware_espidf-v5.1.4/components/RadioLib
       type: local
     version: 7.1.2
   SparkFun_ADXL345:
@@ -40,29 +40,23 @@ dependencies:
       type: git
     version: fb9df3daae168024f682a8dafd689b41c9963d4d
   arduino:
-    component_hash: 4ed224e1efd8cbb7e0e7f3187a279fc05ae36f7b5c41cfb3fb4de01be17a52d8
+    component_hash: b55194fcf34d030e4f96f43c2e85427edbbd00f205501ea0cdb04ceb18e0dc3e
     source:
       git: https://github.com/xl9p/arduino-esp32.git
       path: .
       type: git
-    version: 71b8dcf6615191a9f87142ad0e170f103f316e57
+    version: 78ff4548ae782faad92affcdd672111729bc30ad
   bblanchon/arduinojson:
     component_hash: 914b05e5ba8d6b99d51307d4f5bf6a5ff610c673c200c3134edcc0a7a99d04b0
     source:
       service_url: https://api.components.espressif.com/
       type: service
     version: 7.3.1
-  espressif/esp-dsp:
-    component_hash: fa7fe74305df6da25867437ebcd4213e047cbfc0556cf92067ab657fce537c6e
-    source:
-      service_url: https://api.components.espressif.com/
-      type: service
-    version: 1.5.2
   idf:
     component_hash: null
     source:
       type: idf
     version: 5.1.4
-manifest_hash: 600f66e3eb85a17e3b9df65eaa77745ee9263de697eefba904e6e1c86f5ea1e0
+manifest_hash: 3c767bb0e90d91717c098971fa421e665638d7ecd64ab621e61d050ceab2d10b
 target: esp32s3
 version: 1.0.0
