@@ -16,6 +16,8 @@
 #include "Adafruit_INA260.h"
 #include "Adafruit_NeoPixel.h"
 
+#include "SparkFun_ADXL345.h"
+
 #include "MeasurementDatatypes.h"
 #include "MeasurementModule.h"
 #include "MeasurementTask.h"
@@ -29,7 +31,10 @@ static const char *TAG = "demo";
 
 #define WS2812B_PIN GPIO_NUM_21
 
-#define CONFIG_TELE_INA260_SAMPLING_FREQUENCY 100
+#define CONFIG_TELE_INA260_SAMPLING_FREQUENCY 50
+#define CONFIG_TELE_BME688_SAMPLING_FREQUENCY 100
+#define CONFIG_TELE_ADXL345_SAMPLING_FREQUENCY 50
+
 #define CONFIG_POWER_PRIMARY_BATTERY_CAPACITY 3000
 
 #define CONFIG_MEASUREMENT_TASK_HEAP_DEBUG 1
@@ -39,7 +44,7 @@ extern "C" void app_main();
 // esp_register_shutdown_handler
 
 using INA260Data = MeasurementTaskData<VoltageData, CurrentData, PowerData>;
-using ADXL345Data = MeasurementTaskData<>;
+using ADXL345Data = MeasurementTaskData<AccelerationData>;
 using BME688Data = MeasurementTaskData<>;
 
 MeasurementModule measurementModule{};
@@ -55,11 +60,12 @@ EventConsumer<MeasurementTaskEvent>
 EventConsumer<MeasurementTaskEvent>
     BME688EventConsumer{200U, RINGBUF_TYPE_NOSPLIT, pdMS_TO_TICKS(1000)};
 
-TwoWire i2c_bus(0);
+TwoWire I2CBus(0);
 
 Adafruit_NeoPixel ws2812b =
     Adafruit_NeoPixel(1, WS2812B_PIN, NEO_RGB + NEO_KHZ800);
 Adafruit_INA260 ina260 = Adafruit_INA260();
+ADXL345 adxl345 = ADXL345(&I2CBus);
 
 /* #region INIT SYSTEM PERIPHERALS */
 void initSerial(void) {
@@ -71,7 +77,7 @@ void initSerial(void) {
   Serial.println("Serial Initialized");
 }
 void initI2C(void) {
-  if (!i2c_bus.begin(I2C_BUS_SDA, I2C_BUS_SCL, 400000U)) {
+  if (!I2CBus.begin(I2C_BUS_SDA, I2C_BUS_SCL, 400000U)) {
     ESP_LOGE(TAG, "I2C Init failed.");
     return;
   }
@@ -116,7 +122,7 @@ void ina260ProcessingTask(void *pvParameter) {
 }
 
 void initINA260(void) {
-  bool status = ina260.begin(0x40, &i2c_bus);
+  bool status = ina260.begin(0x40, &I2CBus);
   if (!status) {
     ESP_LOGE(TAG, "Unable to initialize the INA260 sensor%s", " ");
     return;
@@ -158,6 +164,83 @@ void initINA260(void) {
 }
 /* #endregion */
 
+/* #region ADXL345 RELATED */
+void *ADXL345MeasurementFunc(void *pvParameter) {
+  ADXL345Data *data = new ADXL345Data();
+
+  adxl345.readAccel(&data->x, &data->y, &data->z);
+
+  return data;
+}
+
+void adxl345ProcessingTask(void *pvParameter) {
+  struct EventDescriptor<MeasurementTaskEvent> *item;
+  while (1) {
+    while (ADXL345EventConsumer.listenForEvents(
+               sizeof(struct EventDescriptor<MeasurementTaskEvent>),
+               &item,
+               portMAX_DELAY) != ESP_OK)
+      ;
+
+    if (item->event == MEASUREMENT_TASK_DATA_UPDATE_EVENT) {
+      ADXL345Data *data = static_cast<ADXL345Data *>(item->data);
+
+      float x_mps, y_mps, z_mps = 0;
+      x_mps = data->x * -9.80665;
+      y_mps = data->y * -9.80665;
+      z_mps = data->z * -9.80665;
+
+      if (data->size > 0) {
+        ESP_LOGI(
+            TAG, "x: %fm/s^2; y: %fm/s^2; z: %fm/s^2;", x_mps, y_mps, z_mps);
+      }
+    }
+
+    if (item->data) {
+      free(item->data);
+    }
+    free(item);
+  }
+}
+
+void initADXL345() {
+  adxl345.powerOn();
+  adxl345.setRangeSetting(16); // Accepted values are 2g, 4g, 8g or 16g
+  adxl345.setFullResBit(true);
+
+  MeasurementTaskConfig taskConfig{
+      .pollingRate = CONFIG_TELE_ADXL345_SAMPLING_FREQUENCY,
+      .usStackDepth = 4096U,
+      .xCoreID = 0U,
+      .uxPriority = 5U,
+      .pcName = (char *)"ADXL345",
+  };
+
+  MeasurementTaskEventloopConfig eventloopConfig{
+      .sendWaitTicks = pdMS_TO_TICKS(5000),
+      .accessWaitTicks = pdMS_TO_TICKS(1000),
+      .receiveWaitTicks = pdMS_TO_TICKS(10000),
+  };
+
+  esp_err_t res =
+      ADXL345MeasurementTask.configure(&taskConfig, &eventloopConfig);
+  if (res != ESP_OK) {
+    ESP_LOGE(TAG, "ADXL345 configure failed");
+    return;
+  }
+
+  res = ADXL345MeasurementTask.setMeasurementTask(ADXL345MeasurementFunc);
+  if (res != ESP_OK) {
+    ESP_LOGE(TAG, "ADXL345 setMeasurementTask failed");
+    return;
+  }
+
+  Serial.println("ADXL345 Initialized");
+  vTaskDelay(pdMS_TO_TICKS(1000));
+}
+
+/* #endregion */
+
 /* #region WS2812 RELATED */
 void initWS2812b(void) {
   ws2812b.begin();
@@ -190,12 +273,13 @@ void app_main() {
 
   initWS2812b();
   initINA260();
+  initADXL345();
 
   xTaskCreatePinnedToCore(&ws2812b_cycler, "led", 2048, NULL, 3, NULL, 0);
   xTaskCreatePinnedToCore(
       &ina260ProcessingTask, "ina260prcs", 3072, NULL, 4, NULL, 0);
-  // xTaskCreatePinnedToCore(
-  //     &, "", 3072, NULL, 4, NULL, 0);
+  xTaskCreatePinnedToCore(
+      &adxl345ProcessingTask, "adxl345prcs", 3072, NULL, 4, NULL, 0);
   // xTaskCreatePinnedToCore(
   //     &, "", 3072, NULL, 4, NULL, 0);
 
@@ -204,10 +288,13 @@ void app_main() {
   res = INA260MeasurementTask.registerEventConsumer(
       &INA260EventConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
   if (res != ESP_OK) {
-    ESP_LOGE(
-        TAG,
-        "INA260MeasurementTask.registerEventConsumer(eventConsumerCurrent) "
-        "failed");
+    ESP_LOGE(TAG, "INA260MeasurementTask.registerEventConsumer() failed");
+    return;
+  }
+  res = ADXL345MeasurementTask.registerEventConsumer(
+      &ADXL345EventConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+  if (res != ESP_OK) {
+    ESP_LOGE(TAG, "ADXL345MeasurementTask.registerEventConsumer() failed");
     return;
   }
 
@@ -227,13 +314,14 @@ void app_main() {
         "measurementModule.addMeasurementTask(ADXL345MeasurementTask) failed");
     return;
   }
-  res = measurementModule.addMeasurementTask(&BME688MeasurementTask);
-  if (res != ESP_OK) {
-    ESP_LOGE(
-        TAG,
-        "measurementModule.addMeasurementTask(BME688MeasurementTask) failed");
-    return;
-  }
+  // res = measurementModule.addMeasurementTask(&BME688MeasurementTask);
+  // if (res != ESP_OK) {
+  //   ESP_LOGE(
+  //       TAG,
+  //       "measurementModule.addMeasurementTask(BME688MeasurementTask)
+  //       failed");
+  //   return;
+  // }
 
   ESP_LOGI(TAG, "Added measurement task%s", "");
 
@@ -251,27 +339,27 @@ void app_main() {
   }
   ESP_LOGI(TAG, "Started measurement module%s", "");
 
-  vTaskDelay(pdMS_TO_TICKS(10000));
-  ESP_LOGI(TAG, "Stopping%s", "");
-  res = measurementModule.stop();
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "measurementModule.stop() failed");
-    return;
-  }
+  // vTaskDelay(pdMS_TO_TICKS(10000));
+  // ESP_LOGI(TAG, "Stopping%s", "");
+  // res = measurementModule.stop();
+  // if (res != ESP_OK) {
+  //   ESP_LOGE(TAG, "measurementModule.stop() failed");
+  //   return;
+  // }
 
-  vTaskDelay(pdMS_TO_TICKS(3000));
-  ESP_LOGI(TAG, "Starting%s", "");
-  res = measurementModule.start();
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "measurementModule.start() failed");
-    return;
-  }
+  // vTaskDelay(pdMS_TO_TICKS(3000));
+  // ESP_LOGI(TAG, "Starting%s", "");
+  // res = measurementModule.start();
+  // if (res != ESP_OK) {
+  //   ESP_LOGE(TAG, "measurementModule.start() failed");
+  //   return;
+  // }
 
-  vTaskDelay(pdMS_TO_TICKS(5000));
-  ESP_LOGI(TAG, "Stopping%s", "");
-  res = measurementModule.stop();
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "measurementModule.stop() failed");
-    return;
-  }
+  // vTaskDelay(pdMS_TO_TICKS(5000));
+  // ESP_LOGI(TAG, "Stopping%s", "");
+  // res = measurementModule.stop();
+  // if (res != ESP_OK) {
+  //   ESP_LOGE(TAG, "measurementModule.stop() failed");
+  //   return;
+  // }
 }
