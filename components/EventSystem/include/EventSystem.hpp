@@ -15,7 +15,8 @@
 
 #include "esp_log.h"
 
-#include "EventDatatypes.h"
+#include "EventSystemDatatypes.h"
+#include "EventSystemErrors.h"
 
 static int findFirstSetBit(uint32_t num);
 
@@ -38,27 +39,29 @@ public:
     this->_accessMux = xSemaphoreCreateMutex();
     this->_ticksToWaitAccess = ticksToWaitAccess;
 
-    if (this->_accessMux == NULL)
-      ESP_LOGE((char *)"EventSystem", "Access mutex null%s", "");
+    if (!this->_accessMux)
+      ESP_LOGE((char *)"EventSystem", "Mutex allocation failed%s", "");
   }
 
   /* Blocking event receive operation.
     pvBuffer and pvBuffer->data must be freed.
     Could be improved using smart pointers.*/
-  esp_err_t receiveEvent(
+  esp_err_t listenForEvents(
       size_t itemSize,
       void *pvBuffer,
       TickType_t ticksToWait) {
     esp_err_t result = ESP_OK;
 
     if (this->_bufferType != RINGBUF_TYPE_NOSPLIT)
-      return ESP_FAIL;
+      return ESP_ERR_NOT_SUPPORTED;
     if (itemSize > this->_bufferSize)
       return ESP_ERR_INVALID_SIZE;
+    if (!pvBuffer)
+      return ESP_ERR_INVALID_ARG;
 
     void *item = xRingbufferReceive(this->_ringBuffer, &itemSize, ticksToWait);
 
-    if (item == nullptr) {
+    if (!item) {
       result = ESP_FAIL;
     } else {
       EventDescriptor<EventType> *newItem =
@@ -127,7 +130,7 @@ protected:
 
   /* Defined this way because it shouldn't make an impression to be a part of
    * the public API*/
-  esp_err_t _acceptEvent(
+  esp_err_t _receiveEvent(
       const void *pvItem,
       size_t xItemSize,
       TickType_t ticksToWaitSend,
@@ -138,7 +141,7 @@ protected:
         xRingbufferSend(this->_ringBuffer, pvItem, xItemSize, ticksToWaitSend);
     xSemaphoreGive(this->_accessMux);
 
-    if (res == pdFAIL)
+    if (!res)
       return ESP_FAIL;
 
     return ESP_OK;
@@ -158,6 +161,9 @@ public:
   esp_err_t registerEventConsumer(
       EventConsumer<EventType> *eventConsumer,
       EventType event) {
+
+    if (!eventConsumer)
+      return ESP_ERR_INVALID_ARG;
     if (this->eventConsumers[event].second.size() == 32)
       return ESP_ERR_MAX_EVENT_HANDLERS;
 
@@ -167,7 +173,7 @@ public:
         this->eventConsumers[event].second.begin(),
         this->eventConsumers[event].second.end(),
         possibleBits,
-        [](uint32_t acc, const auto &eH) { return acc ^ eH->_bitToSet; });
+        [](uint32_t acc, const auto &eC) { return acc ^ eC->_bitToSet; });
 
     int bit = findFirstSetBit(possibleBits);
 
@@ -188,6 +194,9 @@ public:
   esp_err_t unregisterEventConsumer(
       EventConsumer<EventType> *eventConsumer,
       EventType event) {
+    if (!eventConsumer) {
+      return ESP_ERR_INVALID_ARG;
+    }
 
     auto res = std::find(
         this->eventConsumers[event].second.begin(),
@@ -220,7 +229,7 @@ public:
     EventBits_t bitsToWait = 0;
     for (auto eventConsumer : this->eventConsumers[event].second) {
       bitsToWait |= eventConsumer->_bitToSet;
-      eventConsumer->_acceptEvent(
+      eventConsumer->_receiveEvent(
           &newDataEvent, sizeof(newDataEvent), sendWaitTicks, accessWaitTicks);
     }
 
