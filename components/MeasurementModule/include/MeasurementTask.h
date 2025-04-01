@@ -6,12 +6,11 @@
 
 #include "EventSystem.hpp"
 
-#include "Datatypes.h"
-#include "MeasurementDatatypes.h"
+#include "MeasurementModuleDatatypes.h"
 
 class MeasurementModule;
 
-class MeasurementTask : public EventProducer<measurement_task_event> {
+class MeasurementTask : public EventProducer<MeasurementTaskEvent> {
   friend class MeasurementModule;
 
 public:
@@ -23,8 +22,8 @@ public:
    *
    */
   esp_err_t configure(
-      const measurement_task_config *taskConfig,
-      const measurement_task_eventloop_config *eventloopConfig);
+      const MeasurementTaskConfig *taskConfig,
+      const MeasurementTaskEventloopConfig *eventloopConfig);
 
   /**
    * @brief Start, start the measurement after the configuration.
@@ -47,29 +46,22 @@ public:
   esp_err_t setMeasurementTask(
       const std::function<void *(void *)> &taskFunction);
 
-  measurement_task_config getTaskConfiguration();
-  measurement_task_eventloop_config getEventloopConfiguration();
+  MeasurementTaskConfig getTaskConfiguration();
+  MeasurementTaskEventloopConfig getEventloopConfiguration();
 
-  esp_err_t registerEventHandler(
-      EventConsumer<measurement_task_event> *eventConsumer,
-      measurement_task_event event);
-  esp_err_t unregisterEventHandler(
-      EventConsumer<measurement_task_event> *eventConsumer,
-      measurement_task_event event);
-
-  // Sensor *getSensor();
+  esp_err_t registerEventConsumer(
+      EventConsumer<MeasurementTaskEvent> *eventConsumer,
+      MeasurementTaskEvent event);
+  esp_err_t unregisterEventConsumer(
+      EventConsumer<MeasurementTaskEvent> *eventConsumer,
+      MeasurementTaskEvent event);
 
 private:
   bool isConfigured = false;
   bool isRunning = false;
 
-  // std::unordered_map<measurement_task_event, std::vector<EventHandler *>>
-  //     eventHandlers;
-  // std::unordered_map<measurement_task_event, EventGroupHandle_t> eventGroups;
-
-  // Sensor *sensor;
-  measurement_task_config measurementTaskConfig;
-  measurement_task_eventloop_config eventloopConfig;
+  MeasurementTaskConfig measurementTaskConfig;
+  MeasurementTaskEventloopConfig eventloopConfig;
 
   TaskHandle_t _measurementTaskHandle = NULL;
 

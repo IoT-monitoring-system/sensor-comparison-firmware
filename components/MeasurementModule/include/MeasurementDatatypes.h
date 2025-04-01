@@ -7,7 +7,7 @@
 
 // Types of sensor measurements.
 // -----------------------------------
-enum measurement_type {
+enum MeasurementType {
   UNKNOWN = 0,
 
   Voltage,
@@ -33,49 +33,49 @@ enum measurement_type {
 
 // Structures for each of the sensor reading types.
 // -----------------------------------
-struct default_data {
+struct DefaultData {
   uint8_t def = 0xFF;
 };
-struct voltage_data {
+struct VoltageData {
   float voltage = 0.0f;
 };
-struct current_data {
+struct CurrentData {
   float current = 0.0f;
 };
-struct power_data {
+struct PowerData {
   float power = 0.0f;
 };
-struct temperature_data {
+struct TemperatureData {
   float temperature = 0.0f;
 };
-struct position_data {
+struct PositionData {
   float lat = 0.0f;
   float lon = 0.0f;
 };
-struct elevation_data {
+struct ElevationData {
   float elevation = 0.0f;
 };
-struct speed_data {
+struct SpeedData {
   float speed = 0.0f;
 };
-struct humidity_data {
+struct HumidityData {
   float humidity = 0.0f;
 };
-struct VOC_data {
+struct VOCData {
   float VOC = 0.0f;
 };
-struct VSC_data {
+struct VSCData {
   float VSC = 0.0f;
 };
-struct time_data {
+struct TimeData {
   uint64_t time = 0U;
 };
-struct acceleration_data {
+struct AccelerationData {
   float x = 0.0f;
   float y = 0.0f;
   float z = 0.0f;
 };
-struct rotation_data {
+struct RotationData {
   float x = 0.0f;
   float y = 0.0f;
   float z = 0.0f;
@@ -85,7 +85,6 @@ struct rotation_data {
 // A composite datatype that tries to help the user derive the datatypes that
 // are included.
 // -----------------------------------
-
 struct MeasurementBase {
 #if CONFIG_MEASUREMENT_TASK_DYNAMIC_CAST
   virtual ~MeasurementBase() = default;
@@ -93,19 +92,19 @@ struct MeasurementBase {
   std::bitset<NUM_MEASUREMENTS> included_types;
   size_t size;
 
-  std::vector<measurement_type> get_types() {
-    std::vector<measurement_type> types{0};
+  std::vector<MeasurementType> get_types() {
+    std::vector<MeasurementType> types{0};
     for (uint8_t k = 0; k < NUM_MEASUREMENTS; k++) {
       if (this->included_types.test(k))
-        types.push_back((measurement_type)k);
+        types.push_back((MeasurementType)k);
     }
     return types;
   }
 };
 
 template <typename... Components>
-struct measurement_task_data_t : public MeasurementBase, public Components... {
-  measurement_task_data_t() {
+struct MeasurementTaskData : public MeasurementBase, public Components... {
+  MeasurementTaskData() {
     this->included_types.reset();
     add_types<Components...>();
     this->size = sizeof(*this);
@@ -129,33 +128,33 @@ private:
    *
    */
   template <typename U> void set_flag() {
-    if constexpr (std::is_same_v<U, voltage_data>) {
+    if constexpr (std::is_same_v<U, VoltageData>) {
       included_types.set(Voltage);
-    } else if constexpr (std::is_same_v<U, current_data>) {
+    } else if constexpr (std::is_same_v<U, CurrentData>) {
       included_types.set(Current);
-    } else if constexpr (std::is_same_v<U, power_data>) {
+    } else if constexpr (std::is_same_v<U, PowerData>) {
       included_types.set(Power);
-    } else if constexpr (std::is_same_v<U, temperature_data>) {
+    } else if constexpr (std::is_same_v<U, TemperatureData>) {
       included_types.set(Temperature);
-    } else if constexpr (std::is_same_v<U, position_data>) {
+    } else if constexpr (std::is_same_v<U, PositionData>) {
       included_types.set(Position);
-    } else if constexpr (std::is_same_v<U, elevation_data>) {
+    } else if constexpr (std::is_same_v<U, ElevationData>) {
       included_types.set(Elevation);
-    } else if constexpr (std::is_same_v<U, speed_data>) {
+    } else if constexpr (std::is_same_v<U, SpeedData>) {
       included_types.set(Speed);
-    } else if constexpr (std::is_same_v<U, humidity_data>) {
+    } else if constexpr (std::is_same_v<U, HumidityData>) {
       included_types.set(Humidity);
-    } else if constexpr (std::is_same_v<U, VOC_data>) {
+    } else if constexpr (std::is_same_v<U, VOCData>) {
       included_types.set(VOC);
-    } else if constexpr (std::is_same_v<U, VSC_data>) {
+    } else if constexpr (std::is_same_v<U, VSCData>) {
       included_types.set(VSC);
-    } else if constexpr (std::is_same_v<U, time_data>) {
+    } else if constexpr (std::is_same_v<U, TimeData>) {
       included_types.set(Time);
-    } else if constexpr (std::is_same_v<U, acceleration_data>) {
+    } else if constexpr (std::is_same_v<U, AccelerationData>) {
       included_types.set(Acceleration);
-    } else if constexpr (std::is_same_v<U, rotation_data>) {
+    } else if constexpr (std::is_same_v<U, RotationData>) {
       included_types.set(Rotation);
-    } else if constexpr (std::is_same_v<U, default_data>) {
+    } else if constexpr (std::is_same_v<U, DefaultData>) {
       included_types.set(DEF);
     } else {
       included_types.set(UNKNOWN);

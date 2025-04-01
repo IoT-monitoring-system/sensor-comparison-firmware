@@ -1,21 +1,22 @@
-#include <algorithm>
-#include <numeric>
-#include <utility>
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+/*FIXME Should be part of the config*/
+#define CONFIG_MEASUREMENT_TASK_HEAP_DEBUG 0
+#if CONFIG_MEASUREMENT_TASK_HEAP_DEBUG
 #include "esp_heap_caps.h"
+#endif
 #include "esp_log.h"
 
 #include "MeasurementTask.h"
 
-#define CONFIG_MEASUREMENT_TASK_HEAP_DEBUG 0
+#include "MeasurementDatatypes.h"
+#include "MeasurementModuleErrors.h"
 
 static int findFirstSetBit(uint32_t num);
 
 MeasurementTask::MeasurementTask()
-    : EventProducer<measurement_task_event>(MEASUREMENT_TASK_TOTAL_EVENTS) {
+    : EventProducer<MeasurementTaskEvent>(MEASUREMENT_TASK_TOTAL_EVENTS) {
   this->measurementTaskFunc = [this](void *pvParameter) -> void * {
     return this->defaultMeasurementTask(pvParameter);
   };
@@ -25,8 +26,10 @@ MeasurementTask::MeasurementTask()
 }
 
 esp_err_t MeasurementTask::configure(
-    const measurement_task_config *taskConfig,
-    const measurement_task_eventloop_config *eventloopConfig) {
+    const MeasurementTaskConfig *taskConfig,
+    const MeasurementTaskEventloopConfig *eventloopConfig) {
+  if (!taskConfig || !eventloopConfig)
+    return ESP_ERR_INVALID_ARG;
 
   if (taskConfig->pollingRate == 0)
     return ESP_ERR_INVALID_POLLING_RATE;
@@ -52,7 +55,7 @@ esp_err_t MeasurementTask::configure(
       &this->_measurementTaskHandle,
       this->measurementTaskConfig.xCoreID);
 
-  if (result == pdFALSE)
+  if (!result)
     return ESP_ERR_TASK_CREATE_FAIL;
 
   this->isConfigured = true;
@@ -68,7 +71,7 @@ esp_err_t MeasurementTask::start() {
   if (this->isRunning)
     return ESP_ERR_IS_RUNNING;
   if (!this->isConfigured)
-    return ESP_ERR_NOT_CONFIGURED;
+    return ESP_ERR_TASK_NOT_CONFIGURED;
   if (this->eventConsumers.size() == 0)
     return ESP_ERR_NO_EVENT_HANDLERS;
 
@@ -86,7 +89,7 @@ esp_err_t MeasurementTask::stop() {
   if (!this->isRunning)
     return ESP_ERR_NOT_RUNNING;
   if (!this->isConfigured)
-    return ESP_ERR_NOT_CONFIGURED;
+    return ESP_ERR_TASK_NOT_CONFIGURED;
 
   vTaskSuspend(this->_measurementTaskHandle);
 
@@ -97,7 +100,7 @@ esp_err_t MeasurementTask::stop() {
 
 esp_err_t MeasurementTask::reset() {
   if (!this->isConfigured)
-    return ESP_ERR_NOT_CONFIGURED;
+    return ESP_ERR_TASK_NOT_CONFIGURED;
 
   this->eventloopConfig = DEFAULT_EVENTLOOP_CONFIG;
   this->measurementTaskConfig = DEFAULT_MEASUREMENT_TASK_CONFIG;
@@ -148,7 +151,7 @@ void MeasurementTask::periodicMeasurementTask(void *pvParameter) {
         static_cast<MeasurementBase *>(this->measurementTaskFunc(pvParameter));
 #endif
 
-    esp_err_t res = EventProducer<measurement_task_event>::produceEvent(
+    esp_err_t res = EventProducer<MeasurementTaskEvent>::produceEvent(
         data,
         data->size,
         MEASUREMENT_TASK_DATA_UPDATE_EVENT,
@@ -177,39 +180,38 @@ void MeasurementTask::periodicMeasurementTask(void *pvParameter) {
   return;
 }
 
-esp_err_t MeasurementTask::registerEventHandler(
-    EventConsumer<measurement_task_event> *eventConsumer,
-    measurement_task_event event) {
+esp_err_t MeasurementTask::registerEventConsumer(
+    EventConsumer<MeasurementTaskEvent> *eventConsumer,
+    MeasurementTaskEvent event) {
 
   if (this->isRunning)
     return ESP_ERR_IS_RUNNING;
   if (!this->isConfigured)
-    return ESP_ERR_NOT_CONFIGURED;
+    return ESP_ERR_TASK_NOT_CONFIGURED;
 
-  esp_err_t res = EventProducer<measurement_task_event>::registerEventConsumer(
+  esp_err_t res = EventProducer<MeasurementTaskEvent>::registerEventConsumer(
       eventConsumer, event);
 
   return res;
 }
 
-esp_err_t MeasurementTask::unregisterEventHandler(
-    EventConsumer<measurement_task_event> *eventConsumer,
-    measurement_task_event event) {
+esp_err_t MeasurementTask::unregisterEventConsumer(
+    EventConsumer<MeasurementTaskEvent> *eventConsumer,
+    MeasurementTaskEvent event) {
 
   if (this->isRunning)
     return ESP_ERR_IS_RUNNING;
   if (!this->isConfigured)
-    return ESP_ERR_NOT_CONFIGURED;
+    return ESP_ERR_TASK_NOT_CONFIGURED;
 
-  esp_err_t res =
-      EventProducer<measurement_task_event>::unregisterEventConsumer(
-          eventConsumer, event);
+  esp_err_t res = EventProducer<MeasurementTaskEvent>::unregisterEventConsumer(
+      eventConsumer, event);
 
   return res;
 }
 
 void *MeasurementTask::defaultMeasurementTask(void *pvParameter) {
-  using defaultData = measurement_task_data_t<default_data>;
+  using defaultData = MeasurementTaskData<DefaultData>;
 
   defaultData *def = new defaultData();
 
