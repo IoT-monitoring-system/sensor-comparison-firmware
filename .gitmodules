@@ -42,3 +42,6 @@
 	path = components/BSEC2Library
 	url = git@github.com:xl9p/BSEC2Library.git
 	branch = modified
+[submodule "components/BME69xLibrary"]
+	path = components/BME69xLibrary
+	url = git@github.com:xl9p/BME690_SensorAPI.git
