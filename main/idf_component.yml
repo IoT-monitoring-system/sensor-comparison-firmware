@@ -21,3 +21,9 @@ dependencies:
   Adafruit_NeoPixel:
     git: git@github.com:xl9p/Adafruit_NeoPixel.git
     version: v1.12.3_with_build_files
+  BME68xLibrary:
+    git: https://github.com/xl9p/Bosch-BME68x-Library.git
+    version: modified
+  BME69xLibrary:
+    git: https://github.com/xl9p/BME69xLibrary.git
+    version: main

@@ -1,18 +1,18 @@
 dependencies:
   Adafruit_BusIO:
-    component_hash: de122cc11ae8d16ead2573195362272c4b138b8f0eb1e3fa6039bb8ed3b4bbb8
+    component_hash: d23355e0f6335e37d1e2e32b0ae13f5b2722a70a4adc315eacc2931f80e5dfe5
     source:
       git: https://github.com/xl9p/Adafruit_BusIO.git
       path: .
       type: git
-    version: df5d0055cd3ca4b25c6ae048771d04986ada5618
+    version: 409233cc8776a07208dcf8629eef51a671d946de
   Adafruit_INA260:
-    component_hash: 8e6839733bd2aac15f1773b3fd08167d283cee26e6276ee19db36f3f8f2591a6
+    component_hash: 7f1d480752506d65ed8967e48ad6ff8c0b4656cfc63f6fc0be80174d6f8fe787
     source:
       git: https://github.com/xl9p/Adafruit_INA260.git
       path: .
       type: git
-    version: 9d4138fd444b92db26129c6b086a8b121286a926
+    version: f7a0ecb644959053d2cd0ae07e33fd35a5e75622
   Adafruit_NeoPixel:
     component_hash: 2b790a8ef0123ca42a110262fe432afa123feba7cae7b253df25c7917c59634e
     source:
@@ -27,6 +27,13 @@ dependencies:
       path: .
       type: git
     version: d3009b5e577986fe2ed8b431be4b95f1e4e78813
+  BME69xLibrary:
+    component_hash: 151f0a368d8c44ea40f80855e1a2ebd3d815e2e2b5a6013ed9bf70fda09b8ebc
+    source:
+      git: https://github.com/xl9p/BME69xLibrary.git
+      path: .
+      type: git
+    version: 42347800ceea66f8f6ba5f37a4cec12638638410
   CayenneLPP:
     component_hash: null
     source:
@@ -47,12 +54,12 @@ dependencies:
       type: git
     version: cb6b87fb7b8c6099ca28bb0f144d2a4b85376983
   arduino:
-    component_hash: b55194fcf34d030e4f96f43c2e85427edbbd00f205501ea0cdb04ceb18e0dc3e
+    component_hash: e6a9f23bf72c1dab5b084908bda2d022fe75050e52121697070504071eae7258
     source:
       git: https://github.com/xl9p/arduino-esp32.git
       path: .
       type: git
-    version: 78ff4548ae782faad92affcdd672111729bc30ad
+    version: 2850df5687eba76678e692560d98d67ec8f3f934
   bblanchon/arduinojson:
     component_hash: aee8b75735f2d41f673c986ddf1ee2ccf94d8ad809f71cac862454c07d88b1b1
     source:
@@ -65,11 +72,11 @@ dependencies:
       type: idf
     version: 5.1.4
   joltwallet/littlefs:
-    component_hash: 34b8c56a14f10b440845fe972ce34ef41d1d205bcb139b3dfc58983a10abf59b
+    component_hash: e1dbe782be5aa58e879fe9f22bee60e5ff68acbfe3793d92a2e730c27374c787
     source:
       service_url: https://api.components.espressif.com/
       type: service
-    version: 1.19.1
-manifest_hash: e91c68f4205bdc457b0531395d330b7d2dc76f14d75a284efa2e2780854f5ea1
+    version: 1.19.2
+manifest_hash: d9926f106c2c94350adb335a4bdda2d60bf1495cc89f64a5b80d3dc9d5b338a2
 target: esp32s3
 version: 1.0.0
