@@ -42,3 +42,4 @@ managed_components
 sdkconfig
 sdkconfig.old
 build_log.txt
+serial_monitor_log
