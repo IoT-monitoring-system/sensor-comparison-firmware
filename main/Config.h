@@ -1,0 +1,66 @@
+#pragma once
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#define I2C_SDA_BUS0 GPIO_NUM_1
+#define I2C_SCL_BUS0 GPIO_NUM_2
+#define I2C_SDA_BUS1 GPIO_NUM_3
+#define I2C_SCL_BUS1 GPIO_NUM_4
+
+#define I2C_FREQ_BUS0 400000U
+#define I2C_FREQ_BUS1 400000U
+
+#define SPI_MOSI_BUS3 GPIO_NUM_5
+#define SPI_MISO_BUS3 GPIO_NUM_6
+#define SPI_SCLK_BUS3 GPIO_NUM_7
+
+#define SPI_SD_CS_PIN 0xFFU
+#define SPI_LORA_CS_PIN 0xFFU
+
+#define SPI_FREQ_BUS2 2000000U
+#define SPI_FREQ_BUS3 2000000U
+
+#define WS2812B_PIN GPIO_NUM_21
+
+#define SWITCH_DETECTION_FREQ 1
+#define SWITCH_PIN GPIO_NUM_7
+
+#define CONFIG_TELE_INA260_SAMPLING_FREQUENCY 50
+#define CONFIG_TELE_ADXL345_SAMPLING_FREQUENCY 50
+#define CONFIG_TELE_BME688_SAMPLING_FREQUENCY 100
+#define CONFIG_TELE_BSEC_SAMPLING_FREQUENCY BSEC_SAMPLE_RATE_LP * 2
+#define CONFIG_TELE_BAT_CALC_ACCUM_TIME_S 10
+#define CONFIG_TELE_PWR_SAMPLING_FREQ 0.2
+
+#define CONFIG_VOLT_LEVEL_THRESHOLD_HIGH 3.5
+#define CONFIG_VOLT_LEVEL_THRESHOLD_LOW 2.8
+
+#define CONFIG_ACCEL_LEVEL_THRESHOLD_HIGH 20
+#define CONFIG_ACCEL_LEVEL_THRESHOLD_FREE_FALL 0
+
+#define CONFIG_MEASUREMENT_TASK_HEAP_DEBUG 1
+
+#define TDC_LABEL_LENGTH 256
+#define TDC_SESSION_LENGTH 256
+
+#define USER_ID "TESTUSER0"
+#define CLUSTER_ID "CLUSTER0"
+#define DEVICE_ID "TRACKER0"
+
+#define MQTT_LOOP_POLL_FREQ 1
+/* A value of 0 would mean that MQTT task will send any data as soon as it
+ * becomes available */
+#define MQTT_DATA_SEND_FREQ 0
+
+#define MQTT_MAX_AGGREGATE_PACKETS 1
+#define MQTT_TOPIC_ROOT_PATH "IoT-Monitoring-System"
+#define MQTT_TOPIC_DATA_PATH                                                   \
+  MQTT_TOPIC_ROOT_PATH "/" USER_ID "/" CLUSTER_ID "/" DEVICE_ID "/DATA"
+#define MQTT_TOPIC_STATUS_PATH                                                 \
+  MQTT_TOPIC_ROOT_PATH "/" USER_ID "/" CLUSTER_ID "/" DEVICE_ID "/STATUS"
+#define MQTT_TOPIC_CTRL_PATH                                                   \
+  MQTT_TOPIC_ROOT_PATH "/" USER_ID "/" CLUSTER_ID "/" DEVICE_ID "/CTRL"
+#define MQTT_TOPIC_CLUSTER_CTRL_PATH                                                   \
+  MQTT_TOPIC_ROOT_PATH "/" USER_ID "/" CLUSTER_ID "/CTRL"
+
+#endif
