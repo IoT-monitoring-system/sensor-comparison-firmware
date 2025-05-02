@@ -1,424 +1,344 @@
-/*!
- * Copyright (c) 2021 Bosch Sensortec GmbH. All rights reserved.
- *
- * BSD-3-Clause
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the copyright holder nor the names of its
- *    contributors may be used to endorse or promote products derived from
- *    this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- * COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
- * @file	    sensor_manager.cpp
- * @date		03 Jan 2024
- * @version		2.1.5
- *
- * @brief    	sensor manager
- *
- *
- */
-
 #include "BME6xxManager.h"
+#include "BME6xxManagerErrors.h"
 
-bme6xx_sensor BME6xxManager::_sensors[NUM_BME6XX_UNITS];
-comm_mux comm_setup[NUM_BME6XX_UNITS];
+#include <utility>
+
+static const char *TAG_BME6XX_MANAGER = "BME6xxManager";
+
+#ifdef ESP_PLATFORM
+static uint64_t timestamp_millis() { return esp_timer_get_time() / 1000U; }
+#endif
 
 /*!
  * @brief The constructor of the BME6xxManager class
  */
-BME6xxManager::BME6xxManager() {}
-
-/*!
- * @brief This function initializes the given BME688 sensor
- */
-int8_t BME6xxManager::initialize_sensor(
-    uint8_t sensor_number,
-    uint32_t &sensor_id) {
-  int8_t bme68x_rslt;
-
-  bme68xSensors[sensor_number].begin(
-      BME68X_SPI_INTF,
-      comm_mux_read,
-      comm_mux_write,
-      comm_mux_delay,
-      &comm_setup[sensor_number]);
-  bme68x_rslt = bme68xSensors[sensor_number].status;
-
-  if (bme68x_rslt != BME68X_OK) {
-    return bme68x_rslt;
+BME6xxManager::BME6xxManager() {
+  if (configurator.initialize() != ESP_OK) {
+    ESP_LOGE(TAG_BME6XX_MANAGER, "Configurator init failed");
+    state = BMEMngrState::INVALID;
   }
-  sensor_id = bme68xSensors[sensor_number].getUniqueId();
-  bme68x_rslt = bme68xSensors[sensor_number].status;
-  return bme68x_rslt;
+
+  if (scheduler.initialize() != ESP_OK) {
+    ESP_LOGE(TAG_BME6XX_MANAGER, "Scheduler init failed");
+    state = BMEMngrState::INVALID;
+  }
+
+  state = BMEMngrState::INITIALIZED;
 }
 
-/*!
- * @brief This function configures the heater settings of the sensor
- */
-int8_t BME6xxManager::set_heater_profile(
-    const String &heater_profile_str,
-    const String &duty_cycle_str,
-    bme6xx_heater_profile &heater_profile,
-    uint8_t sensor_number) {
-  /* get heater profiles from parsed object */
-  JsonArray heaterProfilesJson =
-      _configDoc["configBody"]["heaterProfiles"].as<JsonArray>();
+esp_err_t BME6xxManager::addSensor(
+    BME6xxSensor &sensorToAdd,
+    bool performSelftest) {
+  if (addedSensorsCounter >= MAX_BME6XX_UNITS) {
+    return ESP_ERR_MAX_NUM_SENSORS;
+  }
 
-  /* iterate over all heater profiles */
-  for (JsonVariant _heaterProfileJson : heaterProfilesJson) {
+  uint32_t id = sensorToAdd.bme6xxGetUniqueId();
+  if (sensorToAdd.bme6xxCheckStatus() != BME6xxStatus::OK)
+    return ESP_ERR_BME6XX_DRIVER_ERROR;
 
-    /* compare with profile of given sensor */
-    if (heater_profile_str == _heaterProfileJson["id"].as<String>()) {
-      /* on match, save heater temperature and duration vectors */
-      heater_profile.length =
-          _heaterProfileJson["temperatureTimeVectors"].size();
+  if (performSelftest) {
+    ESP_LOGW(TAG_BME6XX_MANAGER, "Performing seltest check, sensor: %lu", id);
+    sensorToAdd.bme6xxSelftestCheck();
+    if (sensorToAdd.bme6xxCheckStatus() != BME6xxStatus::OK)
+      return ESP_ERR_BME6XX_DRIVER_ERROR;
+  }
 
-      for (uint32_t i = 0; i < heater_profile.length; i++) {
-        heater_profile.temperature[i] =
-            _heaterProfileJson["temperatureTimeVectors"][i][0].as<uint16_t>();
-        heater_profile.duration[i] =
-            _heaterProfileJson["temperatureTimeVectors"][i][1].as<uint16_t>();
-      }
-      break;
+  BMEMngrSensor sensor = BMEMngrSensor{
+      .id = id,
+      .device = &sensorToAdd,
+      .config = BMESensorConfig{},
+      .stateData = BMESensorStateData{},
+      .scheduleData = BMESensorScheduleData{}};
+  sensor.stateData.state = BMESensorState::INITIALIZED;
+
+  sensors.push_back(std::move(sensor));
+
+  return ESP_OK;
+}
+
+bool BME6xxManager::scheduleSensor() {
+  return scheduler.scheduleSensor(sensors);
+}
+
+esp_err_t BME6xxManager::configure(FSFile &configFile) {
+  if (state != BMEMngrState::INITIALIZED)
+    return ESP_ERR_BME_MNGR_STATE_INVALID;
+
+  if (!configFile.isValid())
+    return ESP_ERR_CONFIG_FILE_ERROR;
+
+  ESP_LOGI(
+      TAG_BME6XX_MANAGER,
+      "Loading configuration file: %s; File size: %lu",
+      configFile.getFileName().c_str(),
+      configFile.getFileData()->fileSize);
+
+  esp_err_t err = ESP_OK;
+
+  std::vector<BMESensorConfig> configurations(sensors.size());
+  err = cfgSerializer.deserializeConfig(configFile, configurations);
+  if (err != ESP_OK)
+    return err;
+
+  for (auto cfg : configurations) {
+    ESP_LOGW(TAG_BME6XX_MANAGER, "Configuration for sensor:");
+    ESP_LOGW(TAG_BME6XX_MANAGER, "Mode: %u", static_cast<uint8_t>(cfg.mode));
+
+    ESP_LOGW(
+        TAG_BME6XX_MANAGER,
+        "Heater Profile: %s; Length: %u; Time Base: %u; Scan Cycle Duration: "
+        "%llu; ",
+        cfg.heaterProfile.id.c_str(),
+        cfg.heaterProfile.length,
+        cfg.heaterProfile.timeBase,
+        cfg.heaterProfile.heatCycleDuration);
+
+    for (uint8_t i = 0; i < cfg.heaterProfile.length; i++) {
+      ESP_LOGW(
+          TAG_BME6XX_MANAGER,
+          "Step: %u; Temperature: %u; Time: %u",
+          i,
+          cfg.heaterProfile.temperature[i],
+          cfg.heaterProfile.duration[i]);
     }
+
+    ESP_LOGW(
+        TAG_BME6XX_MANAGER,
+        "Duty Cycle Profile: %s; Number Scan Cycles: %u; Number Sleep Cycles: "
+        "%u; Total Sleep Duration: %llu",
+        cfg.dutyCycleProfile.id.c_str(),
+        cfg.dutyCycleProfile.numScans,
+        cfg.dutyCycleProfile.numSleeps,
+        cfg.dutyCycleProfile.sleepDuration);
   }
 
-  /* get duty cycle profiles from parsed object */
-  JsonArray dutyCycleProfilesJson =
-      _configDoc["configBody"]["dutyCycleProfiles"].as<JsonArray>();
+  for (uint8_t i = 0; i < sensors.size(); i++) {
+    if (sensors[i].device == nullptr)
+      return ESP_ERR_SENSOR_INDEX_ERROR;
+    if (sensors[i].stateData.state == BMESensorState::INVALID)
+      continue;
 
-  /* iterate over all duty cycle profiles */
-  for (JsonVariant _dutyCycleProfileJson : dutyCycleProfilesJson) {
-    /* compare with profile of the given sensor */
-    if (duty_cycle_str == _dutyCycleProfileJson["id"].as<String>()) {
-      /* on match, save duty cycle information to the sensor profile */
-      heater_profile.nb_repetitions =
-          _dutyCycleProfileJson["numberScanningCycles"].as<uint8_t>();
-      heater_profile.sleep_duration =
-          _dutyCycleProfileJson["numberSleepingCycles"].as<uint8_t>();
+    err = resetSensor(sensors[i]);
+    if (err != ESP_OK)
+      return err;
 
-      uint64_t sleep_duration = 0;
+    err = configurator.configureSensor(sensors[i], configurations[i]);
+    if (err != ESP_OK)
+      return err;
 
-      for (uint16_t dur : heater_profile.duration) {
-        sleep_duration += (uint64_t)dur * HEATER_TIME_BASE;
-      }
-      heater_profile.sleep_duration *= sleep_duration;
+    err = configurator.setMode(sensors[i], BME6xxMode::SLEEP);
+    if (err != ESP_OK)
+      return err;
 
-      break;
-    }
-  }
-  return configure_sensor(heater_profile, sensor_number);
-}
-
-/*!
- * @brief This function configures the bme688 sensor
- */
-int8_t BME6xxManager::configure_sensor(
-    bme6xx_heater_profile &heater_profile,
-    uint8_t sensor_number) {
-  bme68xSensors[sensor_number].setTPH();
-  int8_t bme68x_rslt = bme68xSensors[sensor_number].status;
-
-  if (bme68x_rslt != BME68X_OK) {
-    return bme68x_rslt;
+    sensors[i].stateData.state = BMESensorState::CONFIGURED;
   }
 
-  /* getMeasDur() returns Measurement duration in micro sec. to convert to milli
-   * sec. '/ INT64_C(1000)' */
-  uint32_t shared_heatr_dur =
-      HEATER_TIME_BASE -
-      (bme68xSensors[sensor_number].getMeasDur(BME68X_PARALLEL_MODE) /
-       INT64_C(1000));
-  /* sets the heater configuration of the sensor */
-  bme68xSensors[sensor_number].setHeaterProf(
-      heater_profile.temperature,
-      heater_profile.duration,
-      shared_heatr_dur,
-      heater_profile.length);
-  return bme68xSensors[sensor_number].status;
-}
+  state = BMEMngrState::CONFIGURED;
 
-/*!
- * @brief This function initializes all bme688 sensors
- */
-bme6xx_ret_code BME6xxManager::initialize_all_sensors() {
-  int8_t bme68x_rslt = BME68X_OK;
-  comm_mux_begin(Wire, SPI);
-
-  for (uint8_t i = 0; i < NUM_BME6XX_UNITS; i++) {
-    bme6xx_sensor *sensor = get_sensor(i);
-    /* Communication interface set for all the 8 sensors */
-    comm_setup[i] = comm_mux_set_config(Wire, SPI, i, comm_setup[i]);
-
-    if (sensor != nullptr) {
-      sensor->i2c_mask = ((0x01 << i) ^ 0xFF); // TODO
-      bme68x_rslt = initialize_sensor(i, sensor->id);
-
-      if (bme68x_rslt != BME68X_OK) {
-        return EDK_BME68X_DRIVER_ERROR;
-      }
-      sensor->is_initialized = true;
-      addedSensorsCounter++;
-    }
-  }
-  return EDK_OK;
-}
-
-/*!
- * @brief This function initializes all bme688 sensors
- * Supports custom SPI and TwoWire instances
- * Supports other number of sensors rather than 8, in such case the .bmeconfig
- * file needs to be edited appropriately (ex. 5 sensors, .bmeconfig
- * sensorConfigurations should only include sensors from 0 to 4).
- */
-bme6xx_ret_code BME6xxManager::initialize_all_sensors(
-    SPIClass &customSPI,
-    TwoWire &customWire,
-    uint8_t numSensors) {
-  int8_t bme68x_rslt = BME68X_OK;
-  comm_mux_begin(customWire, customSPI);
-
-  for (uint8_t i = 0; i < numSensors; i++) {
-    bme6xx_sensor *sensor = get_sensor(i);
-    /* Communication interface set for all the 8 sensors */
-    comm_setup[i] =
-        comm_mux_set_config(customWire, customSPI, i, comm_setup[i]);
-
-    if (sensor != nullptr) {
-      sensor->i2c_mask = ((0x01 << i) ^ 0xFF); // TODO
-      bme68x_rslt = initialize_sensor(i, sensor->id);
-
-      if (bme68x_rslt != BME68X_OK) {
-        return EDK_BME68X_DRIVER_ERROR;
-      }
-      sensor->is_initialized = true;
-      addedSensorsCounter++;
-    }
-  }
-  return EDK_OK;
-}
-
-bme6xx_ret_code BME6xxManager::push_sensor(BME68x sensorToAdd) {
-  int8_t bme68x_rslt = BME68X_OK;
-
-  if (addedSensorsCounter >= NUM_BME6XX_UNITS) {
-    return EDK_SENSOR_MANAGER_MAX_NUM_SENSORS;
-  }
-
-  bme6xx_sensor *sensorInternal = get_sensor(addedSensorsCounter);
-
-  if (!sensorInternal) {
-    return EDK_FAIL;
-  }
-
-  sensorInternal->id = sensorToAdd.getUniqueId();
-  bme68x_rslt = sensorToAdd.status;
-
-  if (bme68x_rslt != BME68X_OK) {
-    return EDK_BME68X_DRIVER_ERROR;
-  }
-
-  sensorInternal->is_initialized = true;
-  bme68xSensors[addedSensorsCounter] = sensorToAdd;
-  addedSensorsCounter++;
-
-  return EDK_OK;
-}
-
-bme6xx_ret_code BME6xxManager::pop_sensor() {
-  if (addedSensorsCounter == 0) {
-    return EDK_SENSOR_MANAGER_NO_SENSORS;
-  }
-
-  bme6xx_sensor *sensorInternal = get_sensor(addedSensorsCounter - 1);
-
-  if (!sensorInternal) {
-    return EDK_FAIL;
-  }
-
-  memset(sensorInternal, 0, sizeof(*sensorInternal));
-  bme68xSensors[addedSensorsCounter - 1] = BME68x();
-  addedSensorsCounter--;
-
-  return EDK_OK;
+  return ESP_OK;
 }
 
 /*!
  * @brief This function configures the sensor manager using the provided config
  * file
  */
-bme6xx_ret_code BME6xxManager::begin(FSFile &configFile) {
-  int8_t bme68xRslt = BME68X_OK;
-  
+esp_err_t BME6xxManager::begin() {
+  if (state != BMEMngrState::CONFIGURED)
+    return ESP_ERR_BME_MNGR_STATE_INVALID;
 
-  ESP_LOGI("BME6xxManager", "Loading configuration file: %s; File size: %lu", configFile.getFileName().c_str(), configFile.getFileData()->fileSize);
+  for (uint8_t i = 0; i < sensors.size(); i++) {
+    if (sensors[i].stateData.state != BMESensorState::CONFIGURED)
+      continue;
 
-  if (!configFile.isValid())
-    return EDK_SENSOR_MANAGER_CONFIG_FILE_ERROR;
+    if (sensors[i].device->bme6xxCheckStatus() != BME6xxStatus::OK)
+      return ESP_ERR_BME6XX_DRIVER_ERROR;
 
-  
-  DeserializationError error = deserializeJson(_configDoc, configFile);
-  if (error) {
-    return EDK_SENSOR_MANAGER_JSON_DESERIAL_ERROR;
+    sensors[i].stateData.state = BMESensorState::RUNNING;
   }
-  memset(_sensors, 0, sizeof(_sensors));
 
-  JsonArray devicefigurations =
-      _configDoc["configBody"]["sensorConfigurations"].as<JsonArray>();
+  state = BMEMngrState::RUNNING;
 
-  for (JsonVariant devicefig : devicefigurations) {
-    /* save config information to sensor profile */
-    uint8_t sensor_number = devicefig["sensorIndex"].as<uint8_t>();
-    bme6xx_sensor *sensor = get_sensor(sensor_number);
+  return ESP_OK;
+}
 
-    if (sensor == nullptr) {
-      return EDK_SENSOR_MANAGER_SENSOR_INDEX_ERROR;
+esp_err_t BME6xxManager::resetSensorState(BMEMngrSensor &sensor) {
+  sensor.stateData.state = BMESensorState::INITIALIZED;
+  return ESP_OK;
+}
+esp_err_t BME6xxManager::resetSensorData(BMEMngrSensor &sensor) {
+  memset(sensor.stateData.lastData, 0, sizeof(sensor.stateData.lastData));
+  return ESP_OK;
+}
+
+esp_err_t BME6xxManager::resetSensor(BME6xxSensor &sensor) {
+  esp_err_t err = ESP_OK;
+
+  auto it = std::find_if(sensors.begin(), sensors.end(), [&](const auto &s) {
+    return s.id == sensor.bme6xxGetUniqueId();
+  });
+
+  if (it != sensors.end()) {
+    err = configurator.setMode((*it), BME6xxMode::SLEEP);
+    if (err != ESP_OK)
+      return err;
+
+    err = configurator.resetSensor((*it));
+    if (err != ESP_OK)
+      return err;
+
+    err = scheduler.resetScheduleData((*it));
+    if (err != ESP_OK)
+      return err;
+
+    err = resetSensorState((*it));
+    if (err != ESP_OK)
+      return err;
+  } else {
+    return ESP_ERR_SENSOR_NOT_FOUND;
+  }
+
+  return ESP_OK;
+}
+esp_err_t BME6xxManager::resetSensor(BMEMngrSensor &sensor) {
+  esp_err_t err = ESP_OK;
+
+  err = configurator.resetSensor(sensor);
+  if (err != ESP_OK)
+    return err;
+
+  err = scheduler.resetScheduleData(sensor);
+  if (err != ESP_OK)
+    return err;
+
+  err = configurator.setMode(sensor, BME6xxMode::SLEEP);
+  if (err != ESP_OK)
+    return err;
+
+  err = resetSensorState(sensor);
+  if (err != ESP_OK)
+    return err;
+
+  return ESP_OK;
+}
+
+esp_err_t BME6xxManager::sleepAll() {
+  esp_err_t err = ESP_OK;
+  if (sensors.empty())
+    return ESP_ERR_NO_SENSORS;
+
+  for (auto &sensor : sensors) {
+    err = configurator.setMode(sensor, BME6xxMode::SLEEP);
+    if (err != ESP_OK)
+      return err;
+
+    delay(100);
+
+    uint8_t nFields = 0;
+    nFields = sensor.device->bme6xxFetchData();
+    if (nFields) {
+      sensor.device->bme6xxGetAllData(sensor.stateData.lastData, nFields);
+      ESP_LOGW(TAG_BME6XX_MANAGER, "Drained %u leftover measurements", nFields);
     }
 
-    if (sensor->is_initialized) {
+    err = scheduler.resetScheduleData(sensor);
+    if (err != ESP_OK)
+      return err;
 
-      String heater_profile_str = devicefig["heaterProfile"].as<String>();
-      String duty_cycle_str = devicefig["dutyCycleProfile"].as<String>();
+    err = resetSensorData(sensor);
+    if (err != ESP_OK)
+      return err;
 
-      sensor->is_configured = false;
-      sensor->wake_up_time = 0;
-      sensor->mode = BME68X_SLEEP_MODE;
-      sensor->cycle_pos = 0;
-      sensor->next_gas_index = 0;
-      sensor->i2c_mask = ((0x01 << sensor_number) ^ 0xFF);
-      sensor->scan_cycle_index = 1;
-
-      /* set the heater profile */
-      bme68xRslt = set_heater_profile(
-          heater_profile_str,
-          duty_cycle_str,
-          sensor->heater_profile,
-          sensor_number);
-
-      if (bme68xRslt != BME68X_OK) {
-        return EDK_BME68X_DRIVER_ERROR;
-      }
-
-      sensor->is_configured = true;
-    }
+    err = scheduler.scheduleWakeUp(sensor, timestamp_millis(), 0);
+    if (err != ESP_OK)
+      return err;
   }
-  return EDK_OK;
+  return ESP_OK;
 }
 
 /*!
  * @brief This function retrieves the selected sensor data
  */
-bme6xx_ret_code BME6xxManager::collect_data(uint8_t num, bme68x_data *data[3]) {
-  bme6xx_ret_code ret_code = EDK_OK;
-  int8_t bme68x_rslt = BME68X_OK;
+esp_err_t BME6xxManager::collectData(BMESensorData &sensData) {
+  if (state != BMEMngrState::RUNNING)
+    return ESP_ERR_BME_MNGR_STATE_INVALID;
 
-  data[0] = data[1] = data[2] = nullptr;
-  bme6xx_sensor *sensor = get_sensor(num);
+  esp_err_t err = ESP_OK;
 
-  if (sensor == nullptr) {
-    return EDK_SENSOR_MANAGER_SENSOR_INDEX_ERROR;
+  // ESP_LOGI(TAG_BME6XX_MANAGER, "Getting last scheduled sensor");
+  BMEMngrSensor *sensor;
+  err = scheduler.getLastScheduledSensor(sensors, sensor);
+  if (err != ESP_OK)
+    return err;
+
+  if (sensor->stateData.state != BMESensorState::RUNNING)
+    return ESP_ERR_SENSOR_STATE_INVALID;
+
+  resetSensorData(*sensor);
+  sensData.sensorId = sensor->id;
+
+  uint64_t timestamp = timestamp_millis();
+  // ESP_LOGI(
+  //     TAG_BME6XX_MANAGER,
+  //     "Selected sensor: %u; WakeupTime: %llu; Time now: %llu; Sensor mode:
+  //     %u", static_cast<uint8_t>(sensor->id), sensor->scheduleData.wakeUpTime,
+  //     timestamp,
+  //     static_cast<uint8_t>(sensor->config.getMode()));
+  if (timestamp >= sensor->scheduleData.wakeUpTime &&
+      sensor->config.mode == BME6xxMode::SLEEP) {
+
+    err = resetSensorData(*sensor);
+    if (err != ESP_OK)
+      return err;
+
+    err = scheduler.resetScheduleData(*sensor);
+    if (err != ESP_OK)
+      return err;
+
+    err = configurator.setMode(*sensor, BME6xxMode::PARALLEL);
+    if (err != ESP_OK)
+      return err;
+
+    err = scheduler.scheduleWakeUpShared(*sensor, timestamp, 0);
+    if (err != ESP_OK)
+      return err;
+
+    return ESP_OK;
   }
 
-  uint64_t time_stamp = utils::get_tick_ms();
+  if (sensor->config.mode == BME6xxMode::PARALLEL) {
+    uint8_t nFields, j = 0;
+    nFields = sensor->device->bme6xxFetchData();
+    sensor->device->bme6xxGetAllData(sensor->stateData.lastData, nFields);
+    for (uint8_t i = 0; i < nFields; i++) {
+      if (sensor->stateData.lastData[i].status & GASM_VALID_MSK) {
+        uint8_t deltaIndex = sensor->stateData.lastData[i].gas_index -
+                             sensor->scheduleData.heaterIndex;
 
-  if (sensor->is_configured && (time_stamp >= sensor->wake_up_time)) {
+        if (deltaIndex > sensor->config.heaterProfile.length)
+          continue;
+        if (deltaIndex != 0)
+          return ESP_ERR_SENSOR_DATA_MISS;
 
-    /* Wake up the sensor if necessary */
-    if (sensor->mode == BME68X_SLEEP_MODE) {
-      sensor->mode = BME68X_PARALLEL_MODE;
-      bme68xSensors[num].setOpMode(BME68X_PARALLEL_MODE);
-      bme68x_rslt = bme68xSensors[num].status;
-      sensor->next_gas_index = 0;
-      sensor->wake_up_time = time_stamp + GAS_WAIT_SHARED;
-    } else {
-      uint8_t nFields, j = 0;
+        sensData.data[j++] = sensor->stateData.lastData[i];
 
-      nFields = bme68xSensors[num].fetchData();
-      bme68x_data *sensor_data = bme68xSensors[num].getAllData();
-
-      for (uint8_t k = 0; k < 3; k++) {
-        _field_data[k] = sensor_data[k];
-      }
-
-      for (uint8_t i = 0; i < nFields; i++) {
-
-        if (_field_data[i].status & BME68X_GASM_VALID_MSK) {
-          uint8_t delta_index =
-              _field_data[i].gas_index - sensor->next_gas_index;
-
-          if (delta_index > sensor->heater_profile.length) {
-            continue;
-          } else if (delta_index > 0) {
-            ret_code = EDK_SENSOR_MANAGER_DATA_MISS_WARNING;
-          }
-
-          data[j++] = &_field_data[i];
-
-          sensor->next_gas_index = _field_data[i].gas_index + 1;
-
-          if (sensor->next_gas_index == sensor->heater_profile.length) {
-            sensor->next_gas_index = 0;
-
-            if (++sensor->cycle_pos >= sensor->heater_profile.nb_repetitions) {
-              sensor->cycle_pos = 0;
-              sensor->mode = BME68X_SLEEP_MODE;
-              sensor->wake_up_time =
-                  utils::get_tick_ms() + sensor->heater_profile.sleep_duration;
-              bme68xSensors[num].setOpMode(BME68X_SLEEP_MODE);
-              bme68x_rslt = bme68xSensors[num].status;
-              break;
-            }
-          }
-          sensor->wake_up_time = time_stamp + GAS_WAIT_SHARED;
-        }
-      }
-
-      if (data[0] == nullptr) {
-        sensor->wake_up_time = time_stamp + GAS_WAIT_SHARED;
+        scheduler.updateHeatingStep(
+            *sensor,
+            sensor->stateData.lastData[i].gas_index,
+            timestamp,
+            configurator);
+      } else {
+        // ESP_LOGW(TAG_BME6XX_MANAGER, "Invalid data");
       }
     }
+    sensData.dataLen = j;
 
-    if (bme68x_rslt < BME68X_OK) {
-      ret_code = EDK_BME68X_DRIVER_ERROR;
+    if (sensData.dataLen == 0) {
+      scheduler.scheduleWakeUpShared(
+          *sensor, timestamp, sensor->scheduleData.heaterIndex);
+      return ESP_ERR_SENSOR_NO_NEW_DATA;
     }
   }
-  return ret_code;
-}
 
-/* Collects data from the last scheduled sensor */
-bme6xx_ret_code BME6xxManager::collect_data(bme68x_data *data[3]) {
-  return collect_data(lastScheduledSensor, data);
-}
-
-void BME6xxManager::update_heating_step(uint8_t gas_index) {
-  bme6xx_sensor *sensor = get_last_scheduled_sensor();
-
-  if (gas_index == sensor->heater_profile.length - 1) {
-    sensor->scan_cycle_index += 1;
-
-    if (sensor->scan_cycle_index > sensor->heater_profile.nb_repetitions) {
-      sensor->scan_cycle_index = 1;
-    }
-  }
+  return err;
 }

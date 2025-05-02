@@ -1,0 +1,10 @@
+component:
+  name: BME6xxManager
+dependencies:
+  arduino:
+    git: https://github.com/xl9p/arduino-esp32.git
+    version: i2c_mutex_mod
+  bblanchon/arduinojson:
+    version: "*"
+  
+  
