@@ -1,11 +1,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-/*FIXME Should be part of the config*/
-#define CONFIG_MEASUREMENT_TASK_HEAP_DEBUG 0
-#if CONFIG_MEASUREMENT_TASK_HEAP_DEBUG
-#include "esp_heap_caps.h"
-#endif
 #include "esp_log.h"
 
 #include "MeasurementTask.h"
@@ -13,25 +8,22 @@
 #include "MeasurementDatatypes.h"
 #include "MeasurementModuleErrors.h"
 
+static const char *TAG_MEASUREMENT_TASK = "MeasurementTask";
+
 static int findFirstSetBit(uint32_t num);
 
 MeasurementTask::MeasurementTask()
-    : EventProducer<MeasurementTaskEvent>(MEASUREMENT_TASK_TOTAL_EVENTS) {
-  this->measurementTaskFunc = [this](void *pvParameter) -> void * {
-    return this->defaultMeasurementTask(pvParameter);
-  };
+    : EventProducer<MeasurementTaskEvent>(
+          MEASUREMENT_TASK_TOTAL_EVENTS,
+          DEFAULT_ESWAITS_CONFIG) {
 
-  this->eventloopConfig = DEFAULT_EVENTLOOP_CONFIG;
+  // this->measurementTaskFunc = this->defaultMeasurementTask;
+
   this->measurementTaskConfig = DEFAULT_MEASUREMENT_TASK_CONFIG;
 }
 
-esp_err_t MeasurementTask::configure(
-    const MeasurementTaskConfig *taskConfig,
-    const MeasurementTaskEventloopConfig *eventloopConfig) {
-  if (!taskConfig || !eventloopConfig)
-    return ESP_ERR_INVALID_ARG;
-
-  if (taskConfig->pollingRate == 0)
+esp_err_t MeasurementTask::configure(const MeasurementTaskConfig &taskConfig) {
+  if (taskConfig.sampleRate <= 0)
     return ESP_ERR_INVALID_POLLING_RATE;
   // TODO - Implement checks
   //  if (taskConfig->pcName)
@@ -43,8 +35,7 @@ esp_err_t MeasurementTask::configure(
   //  if (taskConfig->xCoreID)
   //    return ESP_ERR_INVALID_CORE_ID;
 
-  this->measurementTaskConfig = *taskConfig;
-  this->eventloopConfig = *eventloopConfig;
+  this->measurementTaskConfig = taskConfig;
 
   BaseType_t result = xTaskCreatePinnedToCore(
       MeasurementTask::measurementTaskWrapper,
@@ -69,7 +60,7 @@ esp_err_t MeasurementTask::configure(
  */
 esp_err_t MeasurementTask::start() {
   if (this->isRunning)
-    return ESP_ERR_IS_RUNNING;
+    return ESP_OK;
   if (!this->isConfigured)
     return ESP_ERR_TASK_NOT_CONFIGURED;
   if (this->eventConsumers.size() == 0)
@@ -87,13 +78,25 @@ esp_err_t MeasurementTask::start() {
  */
 esp_err_t MeasurementTask::stop() {
   if (!this->isRunning)
-    return ESP_ERR_NOT_RUNNING;
+    return ESP_OK;
   if (!this->isConfigured)
     return ESP_ERR_TASK_NOT_CONFIGURED;
 
-  vTaskSuspend(this->_measurementTaskHandle);
+  esp_err_t err = ESP_OK;
 
+  if (hooks[MT_PRE_STOP_HOOK])
+    err = hooks[MT_PRE_STOP_HOOK]();
+  if (err != ESP_OK)
+    return err;
+
+  vTaskSuspend(this->_measurementTaskHandle);
+  ESP_LOGI(TAG_MEASUREMENT_TASK, "Suspended a task");
   this->isRunning = false;
+
+  if (hooks[MT_POST_STOP_HOOK])
+    err = hooks[MT_POST_STOP_HOOK]();
+  if (err != ESP_OK)
+    return err;
 
   return ESP_OK;
 }
@@ -102,7 +105,6 @@ esp_err_t MeasurementTask::reset() {
   if (!this->isConfigured)
     return ESP_ERR_TASK_NOT_CONFIGURED;
 
-  this->eventloopConfig = DEFAULT_EVENTLOOP_CONFIG;
   this->measurementTaskConfig = DEFAULT_MEASUREMENT_TASK_CONFIG;
 
   /*TODO - Clear event handlers */
@@ -115,8 +117,23 @@ esp_err_t MeasurementTask::reset() {
   return ESP_OK;
 }
 
+esp_err_t MeasurementTask::setSamplingRate(float sampleRate) {
+  esp_err_t err = ESP_OK;
+
+  if (sampleRate < 0)
+    return ESP_ERR_INVALID_POLLING_RATE;
+
+  this->measurementTaskConfig.sampleRate = sampleRate;
+
+  return err;
+}
+
+const MeasurementTaskConfig &MeasurementTask::getConfiguration() {
+  return this->measurementTaskConfig;
+}
+
 esp_err_t MeasurementTask::setMeasurementTask(
-    const std::function<void *(void *)> &taskFunction) {
+    MeasurementFunction taskFunction) {
   if (this->isRunning)
     return ESP_ERR_IS_RUNNING;
 
@@ -127,54 +144,17 @@ esp_err_t MeasurementTask::setMeasurementTask(
 
 void MeasurementTask::periodicMeasurementTask(void *pvParameter) {
   vTaskSuspend(NULL);
+  MeasurementProducerHelper helper(this);
+
+  esp_err_t err = ESP_OK;
+
   while (1) {
-#if CONFIG_MEASUREMENT_TASK_HEAP_DEBUG
-    size_t heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-    ESP_LOGI(
-        this->measurementTaskConfig.pcName,
-        "Heap before measurement: %u",
-        heap);
+    err = this->measurementTaskFunc(helper);
 
-    uint32_t stackLeft = uxTaskGetStackHighWaterMark2(NULL);
-    ESP_LOGI(
-        this->measurementTaskConfig.pcName,
-        "Stack before measurement: %lu",
-        stackLeft);
-
-#endif
-
-#if CONFIG_MEASUREMENT_TASK_DYNAMIC_CAST
-    MeasurementBase *data =
-        dynamic_cast<MeasurementBase *>(this->measurementTaskFunc(pvParameter));
-#else
-    MeasurementBase *data =
-        static_cast<MeasurementBase *>(this->measurementTaskFunc(pvParameter));
-#endif
-
-    esp_err_t res = EventProducer<MeasurementTaskEvent>::produceEvent(
-        data,
-        data->size,
-        MEASUREMENT_TASK_DATA_UPDATE_EVENT,
-        this->eventloopConfig.sendWaitTicks,
-        this->eventloopConfig.accessWaitTicks,
-        this->eventloopConfig.receiveWaitTicks);
-
-#if CONFIG_MEASUREMENT_TASK_HEAP_DEBUG
-    heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-    ESP_LOGI(
-        this->measurementTaskConfig.pcName, "Heap after measurement: %u", heap);
-
-    stackLeft = uxTaskGetStackHighWaterMark2(NULL);
-    ESP_LOGI(
-        this->measurementTaskConfig.pcName,
-        "Stack after measurement: %lu",
-        stackLeft);
-
-#endif
-
-    vTaskDelay(pdMS_TO_TICKS(1000 / this->measurementTaskConfig.pollingRate));
-
-    delete data;
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG_MEASUREMENT_TASK, "Failed to produce event: %u", err);
+      return;
+    }
   };
 
   return;
@@ -194,7 +174,6 @@ esp_err_t MeasurementTask::registerEventConsumer(
 
   return res;
 }
-
 esp_err_t MeasurementTask::unregisterEventConsumer(
     EventConsumer<MeasurementTaskEvent> *eventConsumer,
     MeasurementTaskEvent event) {
@@ -210,10 +189,42 @@ esp_err_t MeasurementTask::unregisterEventConsumer(
   return res;
 }
 
-void *MeasurementTask::defaultMeasurementTask(void *pvParameter) {
-  using defaultData = MeasurementTaskData<DefaultData>;
+esp_err_t MeasurementTask::registerHook(
+    MTHook hook,
+    MeasurementTaskLifecycleHook hookType) {
+  if (hookType >= MT_TOTAL_HOOKS || hook == nullptr)
+    return ESP_ERR_INVALID_ARG;
 
-  defaultData *def = new defaultData();
+  hooks[hookType] = hook;
 
-  return def;
+  return ESP_OK;
+}
+
+esp_err_t MeasurementTask::unregisterHook(
+    MeasurementTaskLifecycleHook hookType) {
+  if (hookType >= MT_TOTAL_HOOKS)
+    return ESP_ERR_INVALID_ARG;
+
+  hooks[hookType] = nullptr;
+
+  return ESP_OK;
+}
+
+esp_err_t MeasurementProducerHelper::produceMeasurement(
+    void *data,
+    size_t size) {
+
+  const MeasurementTaskConfig mtCfg = this->mt->getConfiguration();
+
+  esp_err_t err = this->mt->produceEvent(
+      data,
+      size,
+      MEASUREMENT_TASK_DATA_UPDATE_EVENT,
+      mtCfg.receiveWaitTicks,
+      mtCfg.sendWaitTicks,
+      mtCfg.accessWaitTicks);
+
+  vTaskDelay(pdMS_TO_TICKS(1000 / mtCfg.sampleRate));
+
+  return err;
 }

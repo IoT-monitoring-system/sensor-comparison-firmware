@@ -6,5 +6,5 @@ SET(MeasurementModule ${MeasurementModuleSource})
 # Include the component's include directories
 idf_component_register( SRCS ${MeasurementModule}
     INCLUDE_DIRS include
-    REQUIRES arduino EventSystem
+    REQUIRES arduino EventSystem bblanchon__arduinojson
 )

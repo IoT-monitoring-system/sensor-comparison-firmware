@@ -4,12 +4,8 @@
 
 #include "MeasurementModuleErrors.h"
 
-// MeasurementModule::MeasurementModule(){
-
-// };
-
 esp_err_t MeasurementModule::configure() {
-  for (auto mTask : this->tasks) {
+  for (auto &mTask : this->tasks) {
     if (!mTask->isConfigured)
       return ESP_ERR_TASK_NOT_CONFIGURED;
   }
@@ -17,7 +13,7 @@ esp_err_t MeasurementModule::configure() {
 };
 
 esp_err_t MeasurementModule::start() {
-  for (auto mTask : this->tasks) {
+  for (auto &mTask : this->tasks) {
     esp_err_t res = mTask->start();
     if (res != ESP_OK)
       return res;
@@ -26,7 +22,7 @@ esp_err_t MeasurementModule::start() {
 };
 
 esp_err_t MeasurementModule::stop() {
-  for (auto mTask : this->tasks) {
+  for (auto &mTask : this->tasks) {
     esp_err_t res = mTask->stop();
     if (res != ESP_OK)
       return res;
@@ -34,27 +30,68 @@ esp_err_t MeasurementModule::stop() {
   return ESP_OK;
 };
 
-esp_err_t MeasurementModule::addMeasurementTask(
-    MeasurementTask *measurementTask) {
-  if (!measurementTask)
-    return ESP_ERR_INVALID_ARG;
+esp_err_t MeasurementModule::startMT(const std::string &mtName) {
+  auto it = std::find_if(
+      this->tasks.begin(),
+      this->tasks.end(),
+      [&](const std::unique_ptr<MeasurementTask> &t) {
+        return t->measurementTaskConfig.pcName == mtName;
+      });
 
-  for (auto mTask : this->tasks) {
-    if (measurementTask->measurementTaskConfig.pcName ==
-        mTask->measurementTaskConfig.pcName)
-      return ESP_ERR_TASK_NAME_TAKEN;
+  if (it == this->tasks.end())
+    return ESP_ERR_TASK_NOT_FOUND;
+
+  return (*it)->start();
+}
+
+esp_err_t MeasurementModule::stopMT(const std::string &mtName) {
+  auto it = std::find_if(
+      this->tasks.begin(),
+      this->tasks.end(),
+      [&](const std::unique_ptr<MeasurementTask> &t) {
+        return t->measurementTaskConfig.pcName == mtName;
+      });
+
+  if (it == this->tasks.end())
+    return ESP_ERR_TASK_NOT_FOUND;
+
+  return (*it)->stop();
+}
+
+MeasurementTask *MeasurementModule::addMT(
+    MeasurementFunction measFunc,
+    const MeasurementTaskConfig &cfg) {
+
+  esp_err_t err = ESP_OK;
+  if (!measFunc)
+    return nullptr;
+
+  for (auto &mTask : this->tasks) {
+    if (cfg.pcName == mTask->measurementTaskConfig.pcName)
+      return nullptr;
   }
-  this->tasks.push_back(measurementTask);
-  return ESP_OK;
-};
 
-esp_err_t MeasurementModule::removeMeasurementTask(
-    MeasurementTask *measurementTask) {
+  auto newMeasurementTask = std::make_unique<MeasurementTask>();
+  err = newMeasurementTask->configure(cfg);
+  if (err != ESP_OK)
+    return nullptr;
 
-  if (!measurementTask)
-    return ESP_ERR_INVALID_ARG;
+  err = newMeasurementTask->setMeasurementTask(measFunc);
+  if (err != ESP_OK)
+    return nullptr;
 
-  auto it = std::find(this->tasks.begin(), this->tasks.end(), measurementTask);
+  this->tasks.push_back(std::move(newMeasurementTask));
+
+  return this->tasks.back().get();
+}
+
+esp_err_t MeasurementModule::removeMT(const std::string &mtName) {
+  auto it = std::find_if(
+      this->tasks.begin(),
+      this->tasks.end(),
+      [&](const std::unique_ptr<MeasurementTask> &t) {
+        return t->measurementTaskConfig.pcName == mtName;
+      });
 
   if (it == this->tasks.end())
     return ESP_ERR_TASK_NOT_FOUND;
@@ -63,6 +100,20 @@ esp_err_t MeasurementModule::removeMeasurementTask(
 
   return ESP_OK;
 };
+
+MeasurementTask *MeasurementModule::getMTByName(const std::string &mtName) {
+  auto it = std::find_if(
+      this->tasks.begin(),
+      this->tasks.end(),
+      [&](const std::unique_ptr<MeasurementTask> &t) {
+        return t->measurementTaskConfig.pcName == mtName;
+      });
+
+  if (it == this->tasks.end())
+    return nullptr;
+
+  return it->get();
+}
 
 uint32_t MeasurementModule::getTotalNumTasks() { return this->tasks.size(); };
 uint32_t MeasurementModule::getNumTasksRunning() {
