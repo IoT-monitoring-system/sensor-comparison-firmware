@@ -1,0 +1,1 @@
+openocd -f /opt/esp/tools/openocd-esp32/v0.12.0-esp32-20230921/openocd-esp32/share/openocd/scripts/board/esp32s3-builtin.cfg -c "program_esp_bins build flasher_args.json compress verify no_clock_boost; reset; exit"
