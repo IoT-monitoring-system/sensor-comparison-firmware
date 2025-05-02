@@ -18,6 +18,8 @@
 #include "EventSystemDatatypes.h"
 #include "EventSystemErrors.h"
 
+static const char *TAG_EVENT_SYSTEM = "EventSystem";
+
 static int findFirstSetBit(uint32_t num);
 
 template <typename EventType> class EventProducer;
@@ -29,18 +31,24 @@ public:
   EventConsumer(
       size_t bufferSize,
       RingbufferType_t bufferType,
-      TickType_t ticksToWaitAccess) {
+      ESWaitsConfig waitsConfig) {
     this->_ringBuffer = xRingbufferCreate(bufferSize, bufferType);
+    if (!this->_ringBuffer) {
+      ESP_LOGE(TAG_EVENT_SYSTEM, "Mutex allocation failed");
+      return;
+    }
 
     this->_bufferSize = bufferSize;
     this->_bufferType = bufferType;
 
     // NOTE - May fail
     this->_accessMux = xSemaphoreCreateMutex();
-    this->_ticksToWaitAccess = ticksToWaitAccess;
+    this->_waitsConfig = waitsConfig;
 
-    if (!this->_accessMux)
-      ESP_LOGE((char *)"EventSystem", "Mutex allocation failed%s", "");
+    if (!this->_accessMux) {
+      ESP_LOGE(TAG_EVENT_SYSTEM, "Mutex allocation failed");
+      return;
+    }
   }
 
   /* Blocking event receive operation.
@@ -49,7 +57,8 @@ public:
   esp_err_t listenForEvents(
       size_t itemSize,
       void *pvBuffer,
-      TickType_t ticksToWait) {
+      int64_t receiveWaitTicks = -1,
+      int64_t accessWaitTicks = -1) {
     esp_err_t result = ESP_OK;
 
     if (this->_bufferType != RINGBUF_TYPE_NOSPLIT)
@@ -59,55 +68,66 @@ public:
     if (!pvBuffer)
       return ESP_ERR_INVALID_ARG;
 
-    void *item = xRingbufferReceive(this->_ringBuffer, &itemSize, ticksToWait);
+    if (receiveWaitTicks < 0)
+      receiveWaitTicks = this->_waitsConfig.receiveWaitTicks;
+    if (accessWaitTicks < 0)
+      accessWaitTicks = this->_waitsConfig.accessWaitTicks;
+
+    ESP_LOGI(TAG_EVENT_SYSTEM, "About to block on ring buffer");
+    void *item =
+        xRingbufferReceive(this->_ringBuffer, &itemSize, receiveWaitTicks);
+    ESP_LOGI(TAG_EVENT_SYSTEM, "All good");
 
     if (!item) {
-      result = ESP_FAIL;
+      result = ESP_ERR_RECEIVE_WAIT_TIMEOUT;
     } else {
-      EventDescriptor<EventType> *newItem =
-          (EventDescriptor<EventType> *)malloc(
-              sizeof(EventDescriptor<EventType>));
+      auto newItem = new EventDescriptor<EventType>();
 
-      if (!newItem) {
-        result = ESP_ERR_NO_MEM;
+      memcpy(newItem, item, sizeof(EventDescriptor<EventType>));
+
+      if (newItem->dataSize > 0) {
+        uint8_t *newData = new uint8_t[newItem->dataSize];
+        memcpy(
+            newData,
+            ((EventDescriptor<EventType> *)item)->data,
+            newItem->dataSize);
+        newItem->data = newData;
       } else {
-        memcpy(newItem, item, sizeof(EventDescriptor<EventType>));
-
-        if (newItem->dataSize > 0) {
-          newItem->data = malloc(newItem->dataSize);
-          if (newItem->data) {
-            memcpy(
-                newItem->data,
-                ((EventDescriptor<EventType> *)item)->data,
-                newItem->dataSize);
-          } else {
-            free(newItem);
-            result = ESP_ERR_NO_MEM;
-          }
-        }
-
-        *(EventDescriptor<EventType> **)pvBuffer = newItem;
+        newItem->data = nullptr;
       }
+
+      *(EventDescriptor<EventType> **)pvBuffer = newItem;
 
       vRingbufferReturnItem(this->_ringBuffer, item);
     }
 
+    ESP_LOGI(TAG_EVENT_SYSTEM, "Setting bits");
     xEventGroupSetBits(this->_eventGroupHandle, this->_bitToSet);
+    ESP_LOGI(TAG_EVENT_SYSTEM, "Finished setting bits");
 
     return result;
   }
 
   esp_err_t flushBuffer() {
-    xSemaphoreTake(this->_accessMux, this->_ticksToWaitAccess);
+
+    if (xSemaphoreTake(this->_accessMux, this->_waitsConfig.accessWaitTicks) !=
+        pdPASS)
+      return ESP_ERR_ACCESS_WAIT_TIMEOUT;
     vRingbufferDelete(this->_ringBuffer);
     this->_ringBuffer = xRingbufferCreate(this->_bufferSize, this->_bufferType);
+
+    if (!this->_ringBuffer)
+      return ESP_ERR_RING_BUFF_CREATE_FAIL;
+
     xSemaphoreGive(this->_accessMux);
 
     return ESP_OK;
   }
 
   size_t getBufferFreeSpace() {
-    xSemaphoreTake(this->_accessMux, this->_ticksToWaitAccess);
+    if (xSemaphoreTake(this->_accessMux, this->_waitsConfig.accessWaitTicks) !=
+        pdPASS)
+      return ESP_ERR_ACCESS_WAIT_TIMEOUT;
     size_t size = xRingbufferGetCurFreeSize(this->_ringBuffer);
     xSemaphoreGive(this->_accessMux);
 
@@ -120,7 +140,7 @@ protected:
 
   RingbufHandle_t _ringBuffer;
 
-  TickType_t _ticksToWaitAccess;
+  ESWaitsConfig _waitsConfig;
   SemaphoreHandle_t _accessMux;
 
   /* These will be modified by the MeasurementTask whenever we use pass it to
@@ -133,37 +153,45 @@ protected:
   esp_err_t _receiveEvent(
       const void *pvItem,
       size_t xItemSize,
-      TickType_t ticksToWaitSend,
-      TickType_t ticksToWaitAccess) {
+      int64_t sendWaitTicks = -1,
+      int64_t accessWaitTicks = -1) {
 
-    xSemaphoreTake(this->_accessMux, ticksToWaitAccess);
-    BaseType_t res =
-        xRingbufferSend(this->_ringBuffer, pvItem, xItemSize, ticksToWaitSend);
+    esp_err_t err = ESP_OK;
+
+    if (accessWaitTicks < 0)
+      accessWaitTicks = this->_waitsConfig.accessWaitTicks;
+    if (sendWaitTicks < 0)
+      sendWaitTicks = this->_waitsConfig.sendWaitTicks;
+
+    if (xSemaphoreTake(this->_accessMux, accessWaitTicks) != pdPASS)
+      return ESP_ERR_ACCESS_WAIT_TIMEOUT;
+
+    if (xRingbufferSend(this->_ringBuffer, pvItem, xItemSize, sendWaitTicks) !=
+        pdTRUE) {
+      err = ESP_ERR_RING_BUFF_SEND_FAIL;
+    }
     xSemaphoreGive(this->_accessMux);
 
-    if (!res)
-      return ESP_FAIL;
-
-    return ESP_OK;
+    return err;
   }
 };
 
 template <typename EventType> class EventProducer {
 public:
-  EventProducer(uint8_t numEvents) {
+  EventProducer(uint8_t numEvents, ESWaitsConfig waitsConfig) {
     this->eventConsumers.resize(numEvents);
 
     for (uint8_t i = 0; i < numEvents; i++) {
       this->eventConsumers[i].first = xEventGroupCreate();
     }
+
+    this->_waitsConfig = waitsConfig;
   }
 
   esp_err_t registerEventConsumer(
       EventConsumer<EventType> *eventConsumer,
       EventType event) {
 
-    if (!eventConsumer)
-      return ESP_ERR_INVALID_ARG;
     if (this->eventConsumers[event].second.size() == 32)
       return ESP_ERR_MAX_EVENT_HANDLERS;
 
@@ -216,9 +244,20 @@ public:
       void *data,
       size_t dataSize,
       EventType event,
-      TickType_t sendWaitTicks,
-      TickType_t accessWaitTicks,
-      TickType_t receiveWaitTicks) {
+      int64_t receiveWaitTicks = -1,
+      int64_t sendWaitTicks = -1,
+      int64_t accessWaitTicks = -1) {
+    esp_err_t err = ESP_OK;
+
+    if (!data)
+      return ESP_ERR_INVALID_ARG;
+
+    if (receiveWaitTicks < 0)
+      receiveWaitTicks = this->_waitsConfig.receiveWaitTicks;
+    if (accessWaitTicks < 0)
+      accessWaitTicks = this->_waitsConfig.accessWaitTicks;
+    if (sendWaitTicks < 0)
+      sendWaitTicks = this->_waitsConfig.sendWaitTicks;
 
     EventDescriptor<EventType> newDataEvent = {
         .event = event,
@@ -228,9 +267,23 @@ public:
 
     EventBits_t bitsToWait = 0;
     for (auto eventConsumer : this->eventConsumers[event].second) {
+      if (eventConsumer->_bitToSet == 0) {
+        ESP_LOGE(TAG_EVENT_SYSTEM, "Invalid _bitToSet for event consumer");
+        continue;
+      }
+
       bitsToWait |= eventConsumer->_bitToSet;
-      eventConsumer->_receiveEvent(
+      err = eventConsumer->_receiveEvent(
           &newDataEvent, sizeof(newDataEvent), sendWaitTicks, accessWaitTicks);
+
+      ESP_LOGI(
+          TAG_EVENT_SYSTEM,
+          "Waiting: %lu, bitToSet: %lu",
+          bitsToWait,
+          eventConsumer->_bitToSet);
+
+      if (err != ESP_OK)
+        return err;
     }
 
     xEventGroupWaitBits(
@@ -238,22 +291,31 @@ public:
         bitsToWait,
         pdFALSE,
         pdTRUE,
-        receiveWaitTicks);
+        portMAX_DELAY); // receiveWaitTicks
 
     EventBits_t bitsCleared =
         xEventGroupClearBits(this->eventConsumers[event].first, bitsToWait);
 
-    if ((bitsCleared && bitsToWait) != bitsToWait) {
-      // TODO
+    if ((bitsCleared & bitsToWait) != bitsToWait) {
+      ESP_LOGW(
+          TAG_EVENT_SYSTEM,
+          "Waiting: %lu, Cleared: %lu, Comparison: %i",
+          bitsToWait,
+          bitsCleared,
+          (bitsCleared & bitsToWait) != bitsToWait);
+      return ESP_ERR_RECEIVE_WAIT_TIMEOUT;
     }
-    /* TODO Error handling*/
+
     return ESP_OK;
   }
+
+  const ESWaitsConfig &getESWaitsCfg() { return this->_waitsConfig; }
 
 protected:
   std::vector<
       std::pair<EventGroupHandle_t, std::vector<EventConsumer<EventType> *>>>
       eventConsumers;
+  ESWaitsConfig _waitsConfig;
 };
 
 static int findFirstSetBit(uint32_t num) {
