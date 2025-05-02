@@ -10,13 +10,10 @@
 
 #include <Arduino.h>
 #include <HardwareSerial.h>
+#include <SD.h>
 #include <SPI.h>
+#include <WiFi.h>
 #include <Wire.h>
-
-#include "Adafruit_INA260.h"
-#include "Adafruit_NeoPixel.h"
-
-#include "SparkFun_ADXL345.h"
 
 #include "MeasurementDatatypes.h"
 #include "MeasurementModule.h"
@@ -24,105 +21,963 @@
 
 #include "EventSystem.hpp"
 
-static const char *TAG = "demo";
+#include "Adafruit_INA260.h"
+#include "Adafruit_NeoPixel.h"
+#include "SparkFun_ADXL345.h"
+#include "bme68xLibrary.h"
+#include "bme69xLibrary.h"
 
-#define I2C_BUS_SDA GPIO_NUM_1
-#define I2C_BUS_SCL GPIO_NUM_2
+#include "BME6xxManager.h"
+#include "BME6xxManagerErrors.h"
+#include "FSManager.h"
+#include "bsec2.h"
 
-#define WS2812B_PIN GPIO_NUM_21
+#include "AppDatatypes.hpp"
+#include "Config.h"
+#include "StateManagement.h"
+#include "Utilities.h"
 
-#define CONFIG_TELE_INA260_SAMPLING_FREQUENCY 50
-#define CONFIG_TELE_BME688_SAMPLING_FREQUENCY 100
-#define CONFIG_TELE_ADXL345_SAMPLING_FREQUENCY 50
-
-#define CONFIG_POWER_PRIMARY_BATTERY_CAPACITY 3000
-
-#define CONFIG_MEASUREMENT_TASK_HEAP_DEBUG 1
+static const char *TAG = "Main-App";
 
 extern "C" void app_main();
 
 // esp_register_shutdown_handler
 
-using INA260Data = MeasurementTaskData<VoltageData, CurrentData, PowerData>;
-using ADXL345Data = MeasurementTaskData<AccelerationData>;
-using BME688Data = MeasurementTaskData<>;
+static StateManager *stateManager;
 
-MeasurementModule measurementModule{};
+uint64_t timeStartS = 0;
 
-MeasurementTask ADXL345MeasurementTask{};
-MeasurementTask BME688MeasurementTask{};
-MeasurementTask INA260MeasurementTask{};
+char tdcLabel[TDC_LABEL_LENGTH] = "";
+char tdcSession[TDC_SESSION_LENGTH] = "";
+uint32_t tdcDurationSec = 300U;
+uint64_t tdcSchedStartTimeSec = 0U;
+bool tdcScheduled = false;
+TaskHandle_t tdcDurationTrackerTaskHandle;
+
+FSManager fsManager;
+
+MeasurementModule measurementModule;
+MeasurementTask *bsecMT;
+MeasurementTask bmeMT;
+MeasurementTask *adxl345MT;
+MeasurementTask *ina260MT;
+
+EventProducer<MeasurementTaskEvent> pwrTeleProducer{
+    MEASUREMENT_TASK_TOTAL_EVENTS,
+    DEFAULT_ESWAITS_CONFIG};
+EventProducer<MeasurementTaskEvent> voltLevelDetectProducer{
+    MEASUREMENT_TASK_TOTAL_EVENTS,
+    DEFAULT_ESWAITS_CONFIG};
+EventProducer<MeasurementTaskEvent> accelLevelDetectProducer{
+    MEASUREMENT_TASK_TOTAL_EVENTS,
+    DEFAULT_ESWAITS_CONFIG};
 
 EventConsumer<MeasurementTaskEvent>
-    INA260EventConsumer{200U, RINGBUF_TYPE_NOSPLIT, pdMS_TO_TICKS(1000)};
+    MQTTConsumer{512, RINGBUF_TYPE_NOSPLIT, DEFAULT_ESWAITS_CONFIG};
 EventConsumer<MeasurementTaskEvent>
-    ADXL345EventConsumer{200U, RINGBUF_TYPE_NOSPLIT, pdMS_TO_TICKS(1000)};
+    voltLevelDetectConsumer{512, RINGBUF_TYPE_NOSPLIT, DEFAULT_ESWAITS_CONFIG};
 EventConsumer<MeasurementTaskEvent>
-    BME688EventConsumer{200U, RINGBUF_TYPE_NOSPLIT, pdMS_TO_TICKS(1000)};
+    pwrTeleConsumer{512, RINGBUF_TYPE_NOSPLIT, DEFAULT_ESWAITS_CONFIG};
+EventConsumer<MeasurementTaskEvent>
+    accelLevelDetectConsumer{512, RINGBUF_TYPE_NOSPLIT, DEFAULT_ESWAITS_CONFIG};
 
-TwoWire I2CBus(0);
+TwoWire I2CBus0(0);
+TwoWire I2CBus1(1);
+
+SPIClass SPIBus2(FSPI); // Specific pins
+SPIClass SPIBus3(HSPI); // Any pins
 
 Adafruit_NeoPixel ws2812b =
     Adafruit_NeoPixel(1, WS2812B_PIN, NEO_RGB + NEO_KHZ800);
 Adafruit_INA260 ina260 = Adafruit_INA260();
-ADXL345 adxl345 = ADXL345(&I2CBus);
+ADXL345 adxl345 = ADXL345(&I2CBus0);
 
-/* #region INIT SYSTEM PERIPHERALS */
+// Make sure that the bme6xxManager sampling isn't running together with bsec,
+// otherwise there will be a confilct in sensor scheduling
+BME6xxManager bme6xxManager;
+BME68x bme688_1;
+BME68x bme688_2;
+// BME69x bme690_1;
+// BME69x bme690_2;
+
+#define BME_NUM_OF_SENS 2U
+#define BSEC_NUM_OF_OUTPUTS 12U // Should match the bsecSensorOutputs array
+Bsec2 bsecInstances[BME_NUM_OF_SENS];
+uint8_t bsecMemBlocks[BME_NUM_OF_SENS][BSEC_INSTANCE_SIZE];
+bsecSensor bsecSensorOutputs[] = {
+    BSEC_OUTPUT_CO2_EQUIVALENT,
+    BSEC_OUTPUT_BREATH_VOC_EQUIVALENT,
+
+    BSEC_OUTPUT_RAW_TEMPERATURE,
+    BSEC_OUTPUT_RAW_HUMIDITY,
+    BSEC_OUTPUT_RAW_GAS,
+    BSEC_OUTPUT_RAW_PRESSURE,
+    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE,
+    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY,
+    BSEC_OUTPUT_COMPENSATED_GAS,
+    BSEC_OUTPUT_GAS_PERCENTAGE,
+
+    BSEC_OUTPUT_STABILIZATION_STATUS,
+    BSEC_OUTPUT_RUN_IN_STATUS,
+};
+
+// #region STATE CONTROL
+// State Normal
+esp_err_t stateNormalEnter() {
+  esp_err_t err = ESP_OK;
+
+  // err = measurementModule.startMT(ina260MT->getConfiguration().pcName);
+  // if (err != ESP_OK) {
+  //   ESP_LOGE(TAG, "Failed to start ina260MT");
+  //   return err;
+  // }
+
+  // err = measurementModule.startMT(adxl345MT->getConfiguration().pcName);
+  // if (err != ESP_OK) {
+  //   ESP_LOGE(TAG, "Failed to start adxl345MT");
+  //   return err;
+  // }
+
+  // err = measurementModule.startMT(bsecMT->getConfiguration().pcName);
+  // if (err != ESP_OK) {
+  //   ESP_LOGE(TAG, "Failed to start bsecMT");
+  //   return err;
+  // }
+  return err;
+}
+esp_err_t stateNormalExit() {
+  esp_err_t err = ESP_OK;
+
+  // err = measurementModule.stopMT(ina260MT->getConfiguration().pcName);
+  // if (err != ESP_OK) {
+  //   ESP_LOGE(TAG, "Failed to stop ina260MT");
+  //   return err;
+  // }
+
+  // err = measurementModule.stopMT(adxl345MT->getConfiguration().pcName);
+  // if (err != ESP_OK) {
+  //   ESP_LOGE(TAG, "Failed to stop adxl345MT");
+  //   return err;
+  // }
+
+  // err = measurementModule.stopMT(bsecMT->getConfiguration().pcName);
+  // if (err != ESP_OK) {
+  //   ESP_LOGE(TAG, "Failed to stop bsecMT");
+  //   return err;
+  // }
+  return err;
+}
+// State Normal
+
+// State Idle
+esp_err_t stateIdleEnter() { return ESP_OK; }
+esp_err_t stateIdleExit() { return ESP_OK; }
+// State Idle
+
+// State Train Data Collection
+esp_err_t stateTrainDataCollectionEnter() {
+  esp_err_t err = ESP_OK;
+
+  ESP_LOGE(TAG, "About to start a MT");
+  // err = measurementModule.startMT(bmeMT->getConfiguration().pcName);
+  err = bmeMT.start();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to start bmeMT");
+    return err;
+  }
+  ESP_LOGE(TAG, "Started a MT");
+
+  // err = measurementModule.startMT(ina260MT->getConfiguration().pcName);
+  // if (err != ESP_OK) {
+  //   ESP_LOGE(TAG, "Failed to start ina260MT");
+  //   return err;
+  // }
+
+  ESP_LOGE(TAG, "About to notify a task");
+  xTaskNotifyGive(tdcDurationTrackerTaskHandle);
+  ESP_LOGE(TAG, "Notified a task");
+
+  return err;
+}
+esp_err_t stateTrainDataCollectionExit() {
+  esp_err_t err = ESP_OK;
+
+  // err = measurementModule.stopMT(bmeMT->getConfiguration().pcName);
+  err = bmeMT.stop();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to stop bmeMT");
+    return err;
+  }
+
+  // err = measurementModule.stopMT(ina260MT->getConfiguration().pcName);
+  // if (err != ESP_OK) {
+  //   ESP_LOGE(TAG, "Failed to stop ina260MT");
+  //   return err;
+  // }
+
+  strncpy((char *)"", tdcLabel, 1);
+  tdcLabel[0] = '\0';
+
+  return err;
+}
+// State Train Data Collection
+
+void initStateManagement() {
+  stateManager = StateManager::getInstance();
+  if (stateManager == nullptr) {
+    ESP_LOGE(TAG, "stateManager is null");
+    return;
+  }
+  ESP_LOGI(TAG, "stateManager initialized%s", "");
+
+  stateManager->registerState(STATE_IDLE, stateIdleEnter, stateIdleExit);
+  stateManager->registerState(STATE_NORMAL, stateNormalEnter, stateNormalExit);
+  stateManager->registerState(
+      STATE_TRAIN_DATA_COLLECTION,
+      stateTrainDataCollectionEnter,
+      stateTrainDataCollectionExit);
+  ESP_LOGI(TAG, "States registered%s", "");
+
+  stateManager->run();
+}
+
+// #endregion
+
+// #region INIT SYSTEM PERIPHERALS
 void initSerial(void) {
   Serial.begin(115200);
 
   while (!Serial)
     vTaskDelay(pdMS_TO_TICKS(100));
   vTaskDelay(pdMS_TO_TICKS(1000));
-  Serial.println("Serial Initialized");
+  ESP_LOGI(TAG, "Serial Initialized");
 }
 void initI2C(void) {
-  if (!I2CBus.begin(I2C_BUS_SDA, I2C_BUS_SCL, 400000U)) {
-    ESP_LOGE(TAG, "I2C Init failed.");
+  if (!I2CBus0.begin(I2C_SDA_BUS0, I2C_SCL_BUS0, I2C_FREQ_BUS0)) {
+    ESP_LOGE(TAG, "I2C Bus 0 init failed.");
     return;
   }
-  Serial.println("I2C Initialized");
+
+  if (!I2CBus1.begin(I2C_SDA_BUS1, I2C_SCL_BUS1, I2C_FREQ_BUS1)) {
+    ESP_LOGE(TAG, "I2C Bus 1 init failed.");
+    return;
+  }
+  ESP_LOGI(TAG, "I2C Initialized");
   vTaskDelay(pdMS_TO_TICKS(1000));
 }
-/* #endregion */
+void initSPI(void) {
+  SPIBus2.begin();
+  ESP_LOGI(TAG, "SPI Bus 2 Initialized");
 
-/* #region INA260 RELATED */
-void *INA260MeasurementFunc(void *pvParameter) {
-  INA260Data *data = new INA260Data();
+  SPIBus3.begin(SPI_SCLK_BUS3, SPI_MISO_BUS3, SPI_MOSI_BUS3);
+  ESP_LOGI(TAG, "SPI Bus 3 Initialized");
 
-  data->current = ina260.readCurrent();
-  data->voltage = ina260.readBusVoltage();
-  data->power = ina260.readPower();
-
-  return data;
+  vTaskDelay(pdMS_TO_TICKS(1000));
 }
+// #endregion
 
-void ina260ProcessingTask(void *pvParameter) {
-  struct EventDescriptor<MeasurementTaskEvent> *item;
+// #region INIT FILE SYSTEM
+bool initLittleFS() {
+  if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
+    ESP_LOGE(TAG, "LittleFS init failed");
+    return false;
+  }
+
+  ESP_LOGI(TAG, "LittleFS Initialized");
+  vTaskDelay(pdMS_TO_TICKS(1000));
+
+  return true;
+}
+bool initSD() {
+  if (!SD.begin(SPI_SD_CS_PIN, SPIBus2, SPI_FREQ_BUS2, "/", 15, true)) {
+    ESP_LOGE(TAG, "SD init failed");
+    return false;
+  }
+
+  ESP_LOGI(TAG, "SD Initialized");
+  vTaskDelay(pdMS_TO_TICKS(1000));
+
+  return true;
+}
+void initFSManager(file_system_type fsType) {
+  esp_err_t error = ESP_OK;
+
+  switch (fsType) {
+  case FS_MANAGER_LITTLE_FS: {
+    if (!initLittleFS())
+      return;
+
+    error = fsManager.initializeFileSystem(LittleFS, FS_MANAGER_LITTLE_FS);
+    break;
+  }
+  case FS_MANAGER_SD: {
+    if (!initSD())
+      return;
+
+    error = fsManager.initializeFileSystem(SD, FS_MANAGER_SD);
+    break;
+  }
+  default: {
+    ESP_LOGE(TAG, "Invalid FS type");
+    break;
+  }
+  }
+
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "FSManager init fail");
+    return;
+  }
+
+  ESP_LOGI(TAG, "FSManager Initialized");
+  vTaskDelay(1000);
+}
+// #endregion
+
+// #region MQTT RELATED
+void MQTTCTRLcallback(char *topic, byte *payload, unsigned int length) {
+  byte copiedData[length];
+  memcpy(copiedData, payload, length);
+
+  // CTRLData ctrlData = Utilities::bytesToCTRLData(copiedData, length);
+
+  std::string message;
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+
+  JsonDocument doc;
+
+  DeserializationError error = deserializeJson(doc, message);
+  if (error) {
+    ESP_LOGE(TAG, "deserializeJson() failed, error: %s", error.c_str());
+    return;
+  }
+
+  CTRLData ctrlData = Utilities::jsonToCTRLData(doc);
+
+  esp_err_t err = ESP_OK;
+  switch (ctrlData.cmd) {
+  case REC_TRAIN_DATA_STATE_SET_FREQ: {
+    err = bmeMT.setSamplingRate(ctrlData.arg.f);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "REC_TRAIN_DATA_STATE_SET_FREQ setSamplingRate failed");
+      return;
+    }
+    break;
+  }
+  case REC_TRAIN_DATA_STATE_SET_LABEL: {
+    strncpy(tdcLabel, ctrlData.arg.str, sizeof(tdcLabel));
+    break;
+  }
+  case REC_TRAIN_DATA_STATE_SET_SESSION: {
+    strncpy(tdcSession, ctrlData.arg.str, sizeof(tdcSession));
+    break;
+  }
+  case REC_TRAIN_DATA_STATE_SET_DURATON: {
+    tdcDurationSec = ctrlData.arg.lui;
+    break;
+  }
+  case REC_TRAIN_DATA_STATE_SCHED_START_TIME: {
+    tdcSchedStartTimeSec = ctrlData.arg.llui;
+    tdcScheduled = true;
+    stateManager->requestTransition(AppState::STATE_TRAIN_DATA_COLLECTION);
+    break;
+  }
+  case SET_STATE: {
+    ESP_LOGI(
+        TAG, "MQTT state transition request, received data length: %u", length);
+    stateManager->requestTransition((AppState)ctrlData.arg.lui);
+    break;
+  }
+  default: {
+    ESP_LOGW(
+        TAG, "Unknown command, length: %u, command: %i", length, ctrlData.cmd);
+    break;
+  }
+  };
+}
+void initWiFiTimeMQTT(void) {
+  esp_err_t res = ESP_OK;
+
+  res = Utilities::configureWiFi();
+  if (res != ESP_OK)
+    return;
+
+  res = Utilities::configureTime();
+  if (res != ESP_OK)
+    return;
+
+  res = Utilities::configureMQTT(DEVICE_ID, MQTTCTRLcallback);
+  if (res != ESP_OK)
+    return;
+
+  res = Utilities::MQTTSubscribe(MQTT_TOPIC_CTRL_PATH);
+  if (res != ESP_OK)
+    return;
+  res = Utilities::MQTTSubscribe(MQTT_TOPIC_CLUSTER_CTRL_PATH);
+  if (res != ESP_OK)
+    return;
+
+  timeStartS = Utilities::POSIXLocalTime();
+}
+void mqttLoopTask(void *pvParameter) {
   while (1) {
-    while (INA260EventConsumer.listenForEvents(
-               sizeof(struct EventDescriptor<MeasurementTaskEvent>),
-               &item,
-               portMAX_DELAY) != ESP_OK)
-      ;
+    if (!Utilities::MQTTRun())
+      initWiFiTimeMQTT();
+    vTaskDelay(pdMS_TO_TICKS(1000U / MQTT_LOOP_POLL_FREQ));
+  }
+}
+void mqttDataSendTask(void *pvParameter) {
+  float delay = std::abs(MQTT_DATA_SEND_FREQ) == 0
+                    ? 0
+                    : 1000 / std::abs(MQTT_DATA_SEND_FREQ);
 
-    if (item->event == MEASUREMENT_TASK_DATA_UPDATE_EVENT) {
-      INA260Data *data = static_cast<INA260Data *>(item->data);
+  JsonDocument doc;
+  JsonObject root = doc.to<JsonObject>();
 
-      if (data->size > 0) {
-        ESP_LOGI(TAG, "Current: %fmA", data->current);
+  MQTTDataContainer mqttData(DEVICE_ID, CLUSTER_ID);
+  while (1) {
+    while (mqttData.objects.size() < MQTT_MAX_AGGREGATE_PACKETS) {
+      struct EventDescriptor<MeasurementTaskEvent> *item;
+      MQTTConsumer.listenForEvents(
+          sizeof(struct EventDescriptor<MeasurementTaskEvent>),
+          &item,
+          portMAX_DELAY,
+          portMAX_DELAY);
+
+      if (item) {
+        if (item->event == MEASUREMENT_TASK_DATA_UPDATE_EVENT) {
+          if (item->data) {
+            auto *data = static_cast<MeasurementBase *>(item->data);
+
+            std::unique_ptr<MeasurementBase> ptr(std::move(data));
+
+            mqttData.addObject(std::move(ptr));
+
+            item->data = nullptr;
+          }
+        }
+        delete item;
       }
     }
 
-    if (item->data) {
-      free(item->data);
+    if (mqttData.objects.size()) {
+      mqttData.label = std::string(tdcLabel);
+      mqttData.session = std::string(tdcSession);
+      mqttData.prepareJSONRepresentation(root);
+      mqttData.setTimeposix(Utilities::POSIXLocalTime());
+      if (Utilities::MQTTPublish(MQTT_TOPIC_DATA_PATH, doc) != ESP_OK) {
+        initWiFiTimeMQTT();
+      }
+      mqttData.eraseObjects();
+      doc.clear();
     }
-    free(item);
+
+    vTaskDelay(pdMS_TO_TICKS(delay));
+  }
+}
+// #endregion
+
+// #region BSEC2 RELATED
+esp_err_t bsecMeasurementFunc(MeasurementProducerHelper &eventProducer) {
+  const bsecOutputs *outputs;
+  bme68xData bmeData;
+  esp_err_t err = ESP_OK;
+
+  for (uint8_t i = 0; i < BME_NUM_OF_SENS; i++) {
+    if (!bsecInstances[i].run())
+      continue;
+
+    outputs = bsecInstances[i].getOutputs();
+    bmeData = bsecInstances[i].getData();
+
+    if (outputs && outputs->nOutputs) {
+      BME6XXData newEventData;
+      for (uint8_t i = 0; i < outputs->nOutputs; i++) {
+        switch (outputs->output[i].sensor_id) {
+        case BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE: {
+          newEventData.timestamp = outputs->output[i].time_stamp / 1000000;
+          newEventData.temperature = outputs->output[i].signal;
+          break;
+        }
+        case BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY: {
+          newEventData.humidity = outputs->output[i].signal;
+          break;
+        }
+        case BSEC_OUTPUT_COMPENSATED_GAS: {
+          newEventData.gasResistance = outputs->output[i].signal;
+          break;
+        }
+        case BSEC_OUTPUT_STABILIZATION_STATUS: {
+          newEventData.sensorStable = outputs->output[i].signal;
+          break;
+        }
+        case BSEC_OUTPUT_RUN_IN_STATUS: {
+          newEventData.sensorRunIn = outputs->output[i].signal;
+          break;
+        }
+        case BSEC_OUTPUT_RAW_PRESSURE: {
+          newEventData.pressure = outputs->output[i].signal;
+          break;
+        }
+        default: {
+        }
+        }
+      }
+
+      // newEventData.label = "bsec";
+      newEventData.sensorId = i;
+      newEventData.size = sizeof(newEventData);
+
+      err = eventProducer.produceMeasurement(
+          (void *)&newEventData, newEventData.size);
+    }
+  }
+  return err;
+}
+void bsecCallBack(
+    const bme68x_data input,
+    const bsecOutputs outputs,
+    Bsec2 bsec) {
+
+  // if (outputs.nOutputs) {
+  //   xSemaphoreGive(bsecBinSemaphore);
+  // }
+}
+void initBSEC() {
+  // for (uint8_t i = 0; i < BME_NUM_OF_SENS; i++) {
+  //   bsecInstances[i].allocateMemory(bsecMemBlocks[i]);
+  //   bsecInstances[i].attachCallback(bsecCallBack);
+
+  //   if (!bsecInstances[i].begin(bme6xxManager.getSensors()[i], i)) {
+  //     ESP_LOGE(TAG, "BSEC2 begin failed%s", "");
+  //     return;
+  //   }
+  //   bsecInstances[i].setTemperatureOffset(TEMP_OFFSET_LP);
+
+  //   if (!bsecInstances[i].updateSubscription(
+  //           bsecSensorOutputs, BSEC_NUM_OF_OUTPUTS, BSEC_SAMPLE_RATE_LP)) {
+  //     ESP_LOGE(
+  //         TAG, "BSEC2 updateSubscription failed: %i",
+  //         bsecInstances[i].status);
+  //   }
+  // }
+
+  // MeasurementTaskConfig taskConfig{
+  //     .sampleRate = CONFIG_TELE_BSEC_SAMPLING_FREQUENCY,
+  //     .usStackDepth = 6144U,
+  //     .xCoreID = 0U,
+  //     .uxPriority = 5U,
+  //     .pcName = (char *)"BSEC",
+  //     .sendWaitTicks = pdMS_TO_TICKS(5000),
+  //     .accessWaitTicks = pdMS_TO_TICKS(1000),
+  //     .receiveWaitTicks = pdMS_TO_TICKS(10000),
+  // };
+
+  // bsecMT = measurementModule.addMT(bsecMeasurementFunc, taskConfig);
+  // if (bsecMT == nullptr) {
+  //   ESP_LOGE(TAG, "bsec configure failed");
+  //   return;
+  // }
+
+  ESP_LOGI(TAG, "BSEC Initialized");
+  vTaskDelay(pdMS_TO_TICKS(1000));
+}
+// #endregion
+
+// #region Train Data Collection
+void tdcDurationTrackerTask(void *pvParameter) {
+  while (1) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    vTaskDelay(pdMS_TO_TICKS(tdcDurationSec * 1000));
+    ESP_LOGI(TAG, "tdcDurationTrackerTask state transition request");
+    stateManager->requestTransition(STATE_IDLE);
+  }
+}
+volatile bool switchChanged = false;
+void IRAM_ATTR switchISR() { switchChanged = true; }
+void initSwitch() {
+  pinMode(SWITCH_PIN, INPUT_PULLDOWN);
+  attachInterrupt(digitalPinToInterrupt(SWITCH_PIN), switchISR, CHANGE);
+}
+void switchDetectionTask(void *pvParameter) {
+  uint16_t tdcLabelCounter = 0;
+
+  while (1) {
+    if (switchChanged) {
+      switchChanged = false;
+      int state = digitalRead(SWITCH_PIN);
+      ESP_LOGI(TAG, "Switch state: %s", state == HIGH ? "PRESSED" : "RELEASED");
+      ESP_LOGI(TAG, "TDC Label Counter: %u", tdcLabelCounter);
+      tdcLabelCounter++;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000 / SWITCH_DETECTION_FREQ));
+  }
+}
+// #endregion
+
+void monitor_all_tasks() {
+  char *buffer = (char *)malloc(1024);
+  if (buffer) {
+    vTaskList(buffer);
+    ESP_LOGI("TASKS", "\nTask Name\tState\tPrio\tStack\tNum\n%s", buffer);
+    free(buffer);
   }
 }
 
+// #region BME6XX RELATED
+esp_err_t bmeMTPostStopHook() {
+  esp_err_t err = ESP_OK;
+
+  ESP_LOGI(TAG, "Executed post stop hook");
+
+  err = bme6xxManager.sleepAll();
+
+  // bme6xxManager.resetSensors();
+  return err;
+}
+
+esp_err_t bmeMTPreStartHook() {
+  esp_err_t err = ESP_OK;
+  // bme6xxManager.loadConfig(FSFile & configFile);
+
+  // bme6xxManager.configure();
+  // bme6xxManager.begin();
+
+  return err;
+}
+
+esp_err_t bme6xxMeasurementFunc(MeasurementProducerHelper &eventProducer) {
+  esp_err_t err = ESP_OK;
+
+  if (tdcScheduled) {
+    uint64_t timeNowSec = Utilities::POSIXLocalTime();
+    if (tdcSchedStartTimeSec < 1600000000U || timeNowSec < 1600000000U) {
+      ESP_LOGE(
+          TAG,
+          "Time is not synchronized; Scheduled: %llu; Now: %llu",
+          tdcSchedStartTimeSec,
+          timeNowSec);
+      return ESP_FAIL;
+    }
+    if (tdcSchedStartTimeSec < timeNowSec) {
+      ESP_LOGE(
+          TAG,
+          "Scheduled time is invalid; Scheduled: %llu; Now: %llu",
+          tdcSchedStartTimeSec,
+          timeNowSec);
+      return ESP_FAIL;
+    }
+
+    uint64_t sleepTimeSec = (tdcSchedStartTimeSec - timeNowSec) * 1000U;
+
+    ESP_LOGI(
+        TAG,
+        "Scheduled time: %llu; Time now: %llu; Sleep time: %llu",
+        tdcSchedStartTimeSec,
+        timeNowSec,
+        sleepTimeSec);
+
+    vTaskDelay(pdMS_TO_TICKS(sleepTimeSec));
+
+    tdcScheduled = false;
+  }
+
+  BMESensorData sensorData{};
+  while (bme6xxManager.scheduleSensor()) {
+    err = bme6xxManager.collectData(sensorData);
+
+    if (err == ESP_ERR_SENSOR_NO_NEW_DATA) {
+      err = ESP_OK;
+    }
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "Error: %i", err);
+      return err;
+    }
+
+    for (uint8_t i = 0; i < sensorData.dataLen; i++) {
+      uint64_t timestampNow = esp_timer_get_time();
+      timeStartS = Utilities::POSIXLocalTime();
+
+      BME6XXData newEventData{};
+      newEventData.gasIndex = sensorData.data[i].gas_index;
+      newEventData.gasResistance = sensorData.data[i].gas_resistance;
+      newEventData.humidity = sensorData.data[i].humidity;
+      newEventData.pressure = (sensorData.data[i].pressure * 0.01f);
+      newEventData.temperature = sensorData.data[i].temperature;
+      newEventData.sensorId = sensorData.sensorId;
+      newEventData.timestamp =
+          (timeStartS * 1000000U) -
+          (timestampNow - sensorData.data[i].meas_timestamp);
+      newEventData.sensorStable =
+          (sensorData.data[i].status & HEAT_STAB_MSK) ? 1 : 0;
+      newEventData.size = sizeof(newEventData);
+
+      ESP_LOGI(
+          TAG,
+          "Sensor ID: %lu; Heater index: %u; Gas resistance: %f; Humidity: %f; "
+          "Pressure: %f; Temperature: %f; Timestamp: %llu",
+          newEventData.sensorId,
+          newEventData.gasIndex,
+          newEventData.gasResistance,
+          newEventData.humidity,
+          newEventData.pressure,
+          newEventData.temperature,
+          newEventData.timestamp);
+
+      err = eventProducer.produceMeasurement(
+          (void *)&newEventData, newEventData.size);
+
+      if (err != ESP_OK)
+        return err;
+    }
+  }
+
+  vTaskDelay(pdMS_TO_TICKS(10));
+
+  return err;
+}
+void initBME6xx_n() {
+  int8_t res = 0;
+  bme688_1.begin(0x77, I2CBus0);
+  res = bme688_1.checkStatus();
+  if (res != BME68X_OK) {
+    ESP_LOGE(TAG, "Error initializing bme688_1 sensor, code: %i", res);
+    return;
+  }
+  ESP_LOGI(TAG, "bme688_1 Initialized");
+
+  bme688_2.begin(0x77, I2CBus1);
+  res = bme688_2.checkStatus();
+  if (res != BME68X_OK) {
+    ESP_LOGE(TAG, "Error initializing bme688_2 sensor, code: %i", res);
+    return;
+  }
+  ESP_LOGI(TAG, "bme688_2 Initialized");
+
+  // bme690_1.begin(0x76, I2CBus1);
+  // res = bme690_1.checkStatus();
+  // if (res != BME69X_OK) {
+  //   ESP_LOGE(TAG, "Error initializing bme690_1 sensor, code: %i", res);
+  //   return;
+  // }
+  // ESP_LOGI(TAG, "bme690_1 Initialized");
+
+  // bme690_2.begin(0x76, I2CBus0);
+  // res = bme690_2.checkStatus();
+  // if (res != BME69X_OK) {
+  //   ESP_LOGE(TAG, "Error initializing bme690_2 sensor, code: %i", res);
+  //   return;
+  // }
+  // ESP_LOGI(TAG, "bme690_2 Initialized");
+
+  vTaskDelay(pdMS_TO_TICKS(1000));
+}
+void initBMEManager() {
+  esp_err_t err = ESP_OK;
+
+  std::unique_ptr<FSFile> bmeCfg(
+      fsManager.readFile("/x8default_1sens.bmeconfig"));
+
+  err = bme6xxManager.addSensor(bme688_1, true);
+  if (err != ESP_OK) {
+    ESP_LOGE(
+        TAG, "Failed to add bme688_1 sensor to bme6xxManager, err: %i", err);
+    return;
+  }
+
+  err = bme6xxManager.addSensor(bme688_2, true);
+  if (err != ESP_OK) {
+    ESP_LOGE(
+        TAG, "Failed to add bme688_2 sensor to bme6xxManager, err: %i", err);
+    return;
+  }
+
+  // err = bme6xxManager.addSensor(bme690_1, true);
+  // if (err != ESP_OK) {
+  //   ESP_LOGE(
+  //       TAG, "Failed to add bme690_1 sensor to bme6xxManager, err: %i", err);
+  //   return;
+  // }
+
+  // err = bme6xxManager.addSensor(bme690_2, true);
+  // if (err != ESP_OK) {
+  //   ESP_LOGE(
+  //       TAG, "Failed to add bme690_2 sensor to bme6xxManager, err: %i", err);
+  //   return;
+  // }
+
+  err = bme6xxManager.configure(*bmeCfg);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to load config in bme6xxManager, err: %i", err);
+    return;
+  }
+
+  err = bme6xxManager.begin();
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to start bme6xxManager, err: %i", err);
+    return;
+  }
+
+  MeasurementTaskConfig taskConfig{
+      .sampleRate = CONFIG_TELE_BME688_SAMPLING_FREQUENCY,
+      .usStackDepth = 8192U,
+      .xCoreID = 0U,
+      .uxPriority = 5U,
+      .pcName = (char *)"BME688",
+      .sendWaitTicks = pdMS_TO_TICKS(5000),
+      .accessWaitTicks = pdMS_TO_TICKS(1000),
+      .receiveWaitTicks = pdMS_TO_TICKS(10000),
+  };
+
+  err = bmeMT.registerHook(bmeMTPostStopHook, MT_POST_STOP_HOOK);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "bmeManager registerHook failed");
+    return;
+  }
+  err = bmeMT.setMeasurementTask(bme6xxMeasurementFunc);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "bmeManager setMeasurementTask failed");
+    return;
+  }
+  err = bmeMT.configure(taskConfig);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "bmeManager configure failed");
+    return;
+  }
+  ESP_LOGI(TAG, "bmeManager Initialized");
+
+  vTaskDelay(pdMS_TO_TICKS(1000));
+}
+// #endregion
+
+// #region INA260 RELATED
+esp_err_t INA260MeasurementFunc(MeasurementProducerHelper &eventProducer) {
+
+  INA260Data data;
+
+  data.current = ina260.readCurrent();
+  data.voltage = ina260.readBusVoltage();
+  data.power = ina260.readPower();
+  data.size = sizeof(INA260Data);
+
+  return eventProducer.produceMeasurement((void *)&data, data.size);
+}
+void pwrTeleTask(void *pvParameter) {
+  esp_err_t err = ESP_OK;
+
+  struct EventDescriptor<MeasurementTaskEvent> *item;
+
+  float currentAccumulator = 0;
+  uint32_t samplesCount = 0;
+
+  uint32_t timeStartMS = millis();
+  uint32_t timeEndMS = timeStartMS + CONFIG_TELE_BAT_CALC_ACCUM_TIME_S * 1000;
+
+  float mAhConsumption = 0;
+  float current = 0;
+  float voltage = 0;
+  while (1) {
+    while (pwrTeleConsumer.listenForEvents(
+               sizeof(struct EventDescriptor<MeasurementTaskEvent>),
+               &item,
+               portMAX_DELAY) != ESP_OK) {
+    }
+
+    if (item) {
+      if (item->event == MEASUREMENT_TASK_DATA_UPDATE_EVENT) {
+        INA260Data *data = static_cast<INA260Data *>(item->data);
+
+        if (data) {
+          voltage = data->voltage;
+          current = data->current;
+
+          currentAccumulator += current;
+          samplesCount++;
+
+          uint32_t timeNowMS = millis();
+          if (timeNowMS >= timeEndMS) {
+            float avgCurrent = currentAccumulator / samplesCount;
+            double deltaTime = (timeNowMS - timeStartMS);
+            mAhConsumption += float(avgCurrent * (deltaTime / 3600000.0));
+
+            currentAccumulator = 0;
+            samplesCount = 0;
+            timeStartMS = timeNowMS;
+            timeEndMS = timeStartMS + CONFIG_TELE_BAT_CALC_ACCUM_TIME_S * 1000;
+
+            PowerTelemetryData pwrTeleData;
+            pwrTeleData.batLevel = mAhConsumption;
+            pwrTeleData.voltage = voltage;
+            pwrTeleData.timestamp = millis();
+            pwrTeleData.size = sizeof(PowerTelemetryData);
+
+            err = pwrTeleProducer.produceEvent(
+                &pwrTeleData,
+                pwrTeleData.size,
+                MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+
+            if (err)
+              ESP_LOGE(TAG, "pwrTeleTask failed to produce event");
+          }
+          if (item->data) {
+            free(item->data);
+          }
+        }
+      }
+      free(item);
+    }
+  }
+}
+void voltLevelDetectTask(void *pvParameter) {
+  esp_err_t err = ESP_OK;
+
+  struct EventDescriptor<MeasurementTaskEvent> *item;
+
+  float voltage = 0;
+  while (1) {
+    while (voltLevelDetectConsumer.listenForEvents(
+               sizeof(struct EventDescriptor<MeasurementTaskEvent>),
+               &item,
+               portMAX_DELAY) != ESP_OK) {
+    }
+
+    if (item) {
+      if (item->event == MEASUREMENT_TASK_DATA_UPDATE_EVENT) {
+        INA260Data *data = static_cast<INA260Data *>(item->data);
+
+        if (data) {
+          voltage = data->voltage;
+          AlertData newAlert;
+          newAlert.alert = ALERT_NONE;
+          newAlert.size = sizeof(AlertData);
+          newAlert.timestamp = millis();
+
+          if (voltage >= CONFIG_VOLT_LEVEL_THRESHOLD_HIGH) {
+            newAlert.alert = ALERT_VOLTAGE_HIGH;
+          } else if (voltage <= CONFIG_VOLT_LEVEL_THRESHOLD_LOW) {
+            newAlert.alert = ALERT_VOLTAGE_LOW;
+          }
+
+          if (newAlert.alert != ALERT_NONE) {
+            err = voltLevelDetectProducer.produceEvent(
+                &newAlert, newAlert.size, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+
+            if (err)
+              ESP_LOGE(TAG, "voltLevelDetectTask failed to produce event");
+          }
+
+          if (item->data) {
+            free(item->data);
+          }
+        }
+      }
+      free(item);
+    }
+  }
+}
 void initINA260(void) {
-  bool status = ina260.begin(0x40, &I2CBus);
+  bool status = ina260.begin(0x40, &I2CBus0);
   if (!status) {
     ESP_LOGE(TAG, "Unable to initialize the INA260 sensor%s", " ");
     return;
@@ -132,120 +987,123 @@ void initINA260(void) {
   ina260.setVoltageConversionTime(INA260_TIME_1_1_ms);
   ina260.setAveragingCount(INA260_COUNT_1);
 
-  MeasurementTaskConfig taskConfig{
-      .pollingRate = CONFIG_TELE_INA260_SAMPLING_FREQUENCY,
-      .usStackDepth = 2632U,
-      .xCoreID = 0U,
-      .uxPriority = 5U,
-      .pcName = (char *)"INA260",
-  };
+  // MeasurementTaskConfig taskConfig{
+  //     .sampleRate = CONFIG_TELE_INA260_SAMPLING_FREQUENCY,
+  //     .usStackDepth = 2632U,
+  //     .xCoreID = 0U,
+  //     .uxPriority = 5U,
+  //     .pcName = (char *)"INA260",
+  //     .sendWaitTicks = pdMS_TO_TICKS(5000),
+  //     .accessWaitTicks = pdMS_TO_TICKS(1000),
+  //     .receiveWaitTicks = pdMS_TO_TICKS(10000),
+  // };
 
-  MeasurementTaskEventloopConfig eventloopConfig{
-      .sendWaitTicks = pdMS_TO_TICKS(5000),
-      .accessWaitTicks = pdMS_TO_TICKS(1000),
-      .receiveWaitTicks = pdMS_TO_TICKS(10000),
-  };
+  // ina260MT = measurementModule.addMT(INA260MeasurementFunc, taskConfig);
+  // if (ina260MT == nullptr) {
+  //   ESP_LOGE(TAG, "INA260 configure failed");
+  //   return;
+  // }
 
-  esp_err_t res =
-      INA260MeasurementTask.configure(&taskConfig, &eventloopConfig);
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "INA260 configure failed");
-    return;
-  }
-
-  res = INA260MeasurementTask.setMeasurementTask(INA260MeasurementFunc);
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "INA260 setMeasurementTask failed");
-    return;
-  }
-
-  Serial.println("INA260 Initialized");
+  ESP_LOGI(TAG, "INA260 Initialized");
   vTaskDelay(pdMS_TO_TICKS(1000));
 }
-/* #endregion */
+// #endregion
 
-/* #region ADXL345 RELATED */
-void *ADXL345MeasurementFunc(void *pvParameter) {
-  ADXL345Data *data = new ADXL345Data();
+// #region ADXL345 RELATED
+esp_err_t ADXL345MeasurementFunc(MeasurementProducerHelper &eventProducer) {
+  ADXL345Data data;
 
-  adxl345.readAccel(&data->x, &data->y, &data->z);
+  adxl345.readAccel(&data.x, &data.y, &data.z);
+  data.size = sizeof(ADXL345Data);
 
-  return data;
+  return eventProducer.produceMeasurement((void *)&data, data.size);
 }
+void accelLevelDetectTask(void *pvParameter) {
+  esp_err_t err = ESP_OK;
 
-void adxl345ProcessingTask(void *pvParameter) {
   struct EventDescriptor<MeasurementTaskEvent> *item;
   while (1) {
-    while (ADXL345EventConsumer.listenForEvents(
+    while (accelLevelDetectConsumer.listenForEvents(
                sizeof(struct EventDescriptor<MeasurementTaskEvent>),
                &item,
-               portMAX_DELAY) != ESP_OK)
-      ;
+               portMAX_DELAY) != ESP_OK) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
 
-    if (item->event == MEASUREMENT_TASK_DATA_UPDATE_EVENT) {
-      ADXL345Data *data = static_cast<ADXL345Data *>(item->data);
+    if (item) {
+      if (item->event == MEASUREMENT_TASK_DATA_UPDATE_EVENT) {
+        ADXL345Data *data = static_cast<ADXL345Data *>(item->data);
 
-      float x_mps, y_mps, z_mps = 0;
-      x_mps = data->x * -9.80665;
-      y_mps = data->y * -9.80665;
-      z_mps = data->z * -9.80665;
+        if (data) {
+          float x_mps, y_mps, z_mps = 0;
+          x_mps = data->x * -9.80665;
+          y_mps = data->y * -9.80665;
+          z_mps = data->z * -9.80665;
 
-      if (data->size > 0) {
-        ESP_LOGI(
-            TAG, "x: %fm/s^2; y: %fm/s^2; z: %fm/s^2;", x_mps, y_mps, z_mps);
+          AlertData newAlert;
+          newAlert.alert = ALERT_NONE;
+          newAlert.timestamp = millis();
+          newAlert.size = sizeof(AlertData);
+
+          if (x_mps > CONFIG_ACCEL_LEVEL_THRESHOLD_HIGH ||
+              y_mps > CONFIG_ACCEL_LEVEL_THRESHOLD_HIGH ||
+              z_mps > CONFIG_ACCEL_LEVEL_THRESHOLD_HIGH) {
+            newAlert.alert = ALERT_ACCEL_HIGH;
+          }
+
+          if (newAlert.alert != ALERT_NONE) {
+            err = accelLevelDetectProducer.produceEvent(
+                (void *)&newAlert,
+                newAlert.size,
+                MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+
+            if (err != ESP_OK)
+              ESP_LOGE(TAG, "accelLevelDetectTask failed to produce event");
+          }
+
+          if (item->data) {
+            free(item->data);
+          }
+        }
       }
-    }
 
-    if (item->data) {
-      free(item->data);
+      free(item);
     }
-    free(item);
   }
 }
-
 void initADXL345() {
   adxl345.powerOn();
   adxl345.setRangeSetting(16); // Accepted values are 2g, 4g, 8g or 16g
   adxl345.setFullResBit(true);
 
-  MeasurementTaskConfig taskConfig{
-      .pollingRate = CONFIG_TELE_ADXL345_SAMPLING_FREQUENCY,
-      .usStackDepth = 4096U,
-      .xCoreID = 0U,
-      .uxPriority = 5U,
-      .pcName = (char *)"ADXL345",
-  };
+  // MeasurementTaskConfig taskConfig{
+  //     .sampleRate = CONFIG_TELE_ADXL345_SAMPLING_FREQUENCY,
+  //     .usStackDepth = 4096U,
+  //     .xCoreID = 0U,
+  //     .uxPriority = 5U,
+  //     .pcName = (char *)"ADXL345",
+  //     .sendWaitTicks = pdMS_TO_TICKS(5000),
+  //     .accessWaitTicks = pdMS_TO_TICKS(1000),
+  //     .receiveWaitTicks = pdMS_TO_TICKS(10000),
+  // };
 
-  MeasurementTaskEventloopConfig eventloopConfig{
-      .sendWaitTicks = pdMS_TO_TICKS(5000),
-      .accessWaitTicks = pdMS_TO_TICKS(1000),
-      .receiveWaitTicks = pdMS_TO_TICKS(10000),
-  };
+  // adxl345MT = measurementModule.addMT(ADXL345MeasurementFunc, taskConfig);
+  // if (adxl345MT == nullptr) {
+  //   ESP_LOGE(TAG, "ADXL345 configure failed");
+  //   return;
+  // }
 
-  esp_err_t res =
-      ADXL345MeasurementTask.configure(&taskConfig, &eventloopConfig);
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "ADXL345 configure failed");
-    return;
-  }
-
-  res = ADXL345MeasurementTask.setMeasurementTask(ADXL345MeasurementFunc);
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "ADXL345 setMeasurementTask failed");
-    return;
-  }
-
-  Serial.println("ADXL345 Initialized");
+  ESP_LOGI(TAG, "ADXL345 Initialized");
   vTaskDelay(pdMS_TO_TICKS(1000));
 }
+// #endregion
 
-/* #endregion */
+// #region WS2812 RELATED
 
-/* #region WS2812 RELATED */
 void initWS2812b(void) {
   ws2812b.begin();
   ws2812b.show();
-  Serial.println("WS2812b Initialized");
+  ESP_LOGI(TAG, "WS2812b Initialized");
   vTaskDelay(pdMS_TO_TICKS(1000));
 }
 void ws2812b_cycler(void *pvParameter) {
@@ -259,71 +1117,119 @@ void ws2812b_cycler(void *pvParameter) {
     ws2812b.setPixelColor(0, ws2812b.Color(255, 0, 255));
     ws2812b.show();
 
+    // monitor_all_tasks();
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
-/* #endregion */
+// #endregion
 
 void app_main() {
   initArduino();
   vTaskDelay(pdMS_TO_TICKS(1000));
 
+  esp_log_level_set("gpio", ESP_LOG_ERROR);
+  esp_log_level_set("wifi", ESP_LOG_ERROR);
+  esp_log_level_set("wifi_init", ESP_LOG_ERROR);
+  esp_log_level_set("phy_init", ESP_LOG_ERROR);
+
+  initStateManagement();
+
   initSerial();
   initI2C();
+  initSPI();
+  initSwitch();
+
+  initFSManager(FS_MANAGER_LITTLE_FS);
+
+  initWiFiTimeMQTT();
 
   initWS2812b();
-  initINA260();
-  initADXL345();
+  // initINA260();
+  // initADXL345();
 
-  xTaskCreatePinnedToCore(&ws2812b_cycler, "led", 2048, NULL, 3, NULL, 0);
+  initBME6xx_n();
+  initBMEManager();
+  // initBSEC();
+
+  xTaskCreatePinnedToCore(&ws2812b_cycler, "led", 4096, NULL, 3, NULL, 0);
+
   xTaskCreatePinnedToCore(
-      &ina260ProcessingTask, "ina260prcs", 3072, NULL, 4, NULL, 0);
+      &mqttDataSendTask, "mqttTask", 4096, NULL, 10, NULL, 1);
   xTaskCreatePinnedToCore(
-      &adxl345ProcessingTask, "adxl345prcs", 3072, NULL, 4, NULL, 0);
+      &mqttLoopTask, "mqttLoopTask", 4096, NULL, 10, NULL, 1);
+
   // xTaskCreatePinnedToCore(
-  //     &, "", 3072, NULL, 4, NULL, 0);
+  //     &accelLevelDetectTask, "acclLvlDet", 4096, NULL, 6, NULL, 0);
+
+  // xTaskCreatePinnedToCore(
+  //     &voltLevelDetectTask, "vltLvlDet", 4096, NULL, 7, NULL, 0);
+  // xTaskCreatePinnedToCore(&pwrTeleTask, "pwrTele", 4096, NULL, 5, NULL, 0);
+
+  xTaskCreatePinnedToCore(
+      &tdcDurationTrackerTask,
+      "tdcDurTrackTsk",
+      4096,
+      NULL,
+      7,
+      &tdcDurationTrackerTaskHandle,
+      0);
+  xTaskCreate(&switchDetectionTask, "tdcSwitch", 2048, NULL, 8, NULL);
 
   esp_err_t res;
 
-  res = INA260MeasurementTask.registerEventConsumer(
-      &INA260EventConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+  res = bmeMT.registerEventConsumer(
+      &MQTTConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
   if (res != ESP_OK) {
-    ESP_LOGE(TAG, "INA260MeasurementTask.registerEventConsumer() failed");
+    ESP_LOGE(TAG, "bmeMT.registerEventConsumer() failed");
     return;
   }
-  res = ADXL345MeasurementTask.registerEventConsumer(
-      &ADXL345EventConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "ADXL345MeasurementTask.registerEventConsumer() failed");
-    return;
-  }
-
-  ESP_LOGI(TAG, "Registered event consumers%s", "");
-
-  res = measurementModule.addMeasurementTask(&INA260MeasurementTask);
-  if (res != ESP_OK) {
-    ESP_LOGE(
-        TAG,
-        "measurementModule.addMeasurementTask(INA260MeasurementTask) failed");
-    return;
-  }
-  res = measurementModule.addMeasurementTask(&ADXL345MeasurementTask);
-  if (res != ESP_OK) {
-    ESP_LOGE(
-        TAG,
-        "measurementModule.addMeasurementTask(ADXL345MeasurementTask) failed");
-    return;
-  }
-  // res = measurementModule.addMeasurementTask(&BME688MeasurementTask);
+  // res = bsecMT->registerEventConsumer(
+  //     &MQTTConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
   // if (res != ESP_OK) {
-  //   ESP_LOGE(
-  //       TAG,
-  //       "measurementModule.addMeasurementTask(BME688MeasurementTask)
-  //       failed");
+  //   ESP_LOGE(TAG, "bsecMT.registerEventConsumer() failed");
   //   return;
   // }
 
-  ESP_LOGI(TAG, "Added measurement task%s", "");
+  // res = ina260MT->registerEventConsumer(
+  //     &voltLevelDetectConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+  // if (res != ESP_OK) {
+  //   ESP_LOGE(TAG, "ina260MT.registerEventConsumer() failed");
+  //   return;
+  // }
+  // res = ina260MT->registerEventConsumer(
+  //     &pwrTeleConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+  // if (res != ESP_OK) {
+  //   ESP_LOGE(TAG, "ina260MT.registerEventConsumer() failed");
+  //   return;
+  // }
+
+  // res = adxl345MT->registerEventConsumer(
+  //     &accelLevelDetectConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+  // if (res != ESP_OK) {
+  //   ESP_LOGE(TAG, "adxl345MT.registerEventConsumer() failed");
+  //   return;
+  // }
+
+  // res = pwrTeleProducer.registerEventConsumer(
+  //     &MQTTConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+  // if (res != ESP_OK) {
+  //   ESP_LOGE(TAG, "pwrTeleProducer.registerEventConsumer() failed");
+  //   return;
+  // }
+  // res = voltLevelDetectProducer.registerEventConsumer(
+  //     &MQTTConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+  // if (res != ESP_OK) {
+  //   ESP_LOGE(TAG, "voltLevelDetectProducer.registerEventConsumer() failed");
+  //   return;
+  // }
+
+  // res = accelLevelDetectProducer.registerEventConsumer(
+  //     &MQTTConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
+  // if (res != ESP_OK) {
+  //   ESP_LOGE(TAG, "accelLevelDetectProducer.registerEventConsumer() failed");
+  //   return;
+  // }
+  ESP_LOGI(TAG, "Registered event consumers%s", "");
 
   res = measurementModule.configure();
   if (res != ESP_OK) {
@@ -332,34 +1238,7 @@ void app_main() {
   }
   ESP_LOGI(TAG, "Configured measurement module%s", "");
 
-  res = measurementModule.start();
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "measurementModule.start() failed");
-    return;
-  }
-  ESP_LOGI(TAG, "Started measurement module%s", "");
-
-  // vTaskDelay(pdMS_TO_TICKS(10000));
-  // ESP_LOGI(TAG, "Stopping%s", "");
-  // res = measurementModule.stop();
-  // if (res != ESP_OK) {
-  //   ESP_LOGE(TAG, "measurementModule.stop() failed");
-  //   return;
-  // }
-
-  // vTaskDelay(pdMS_TO_TICKS(3000));
-  // ESP_LOGI(TAG, "Starting%s", "");
-  // res = measurementModule.start();
-  // if (res != ESP_OK) {
-  //   ESP_LOGE(TAG, "measurementModule.start() failed");
-  //   return;
-  // }
-
-  // vTaskDelay(pdMS_TO_TICKS(5000));
-  // ESP_LOGI(TAG, "Stopping%s", "");
-  // res = measurementModule.stop();
-  // if (res != ESP_OK) {
-  //   ESP_LOGE(TAG, "measurementModule.stop() failed");
-  //   return;
-  // }
+  vTaskDelay(pdMS_TO_TICKS(5000));
+  ESP_LOGI(TAG, "app_main state transition request");
+  stateManager->requestTransition(STATE_IDLE);
 }
