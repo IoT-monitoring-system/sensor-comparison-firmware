@@ -1,0 +1,88 @@
+{
+  "configHeader": {
+    "dateCreated_ISO": "2025-04-29T14:16:26.548Z",
+    "appVersion": "3.0.2",
+    "boardType": "board_8",
+    "boardMode": "heater_profile_exploration",
+    "boardLayout": "grouped"
+  },
+  "configBody": {
+    "heaterProfiles": [
+      {
+        "id": "heater_501",
+        "timeBase": 140,
+        "temperatureTimeVectors": [
+          [
+            210,
+            24
+          ],
+          [
+            265,
+            2
+          ],
+          [
+            265,
+            22
+          ],
+          [
+            320,
+            2
+          ],
+          [
+            320,
+            22
+          ],
+          [
+            265,
+            24
+          ],
+          [
+            210,
+            24
+          ],
+          [
+            155,
+            24
+          ],
+          [
+            100,
+            24
+          ],
+          [
+            155,
+            24
+          ]
+        ]
+      }
+    ],
+    "dutyCycleProfiles": [
+      {
+        "id": "duty_2_2",
+        "numberScanningCycles": 2,
+        "numberSleepingCycles": 2
+      }
+    ],
+    "sensorConfigurations": [
+      {
+        "sensorIndex": 0,
+        "heaterProfile": "heater_501",
+        "dutyCycleProfile": "duty_2_2"
+      },
+      {
+        "sensorIndex": 1,
+        "heaterProfile": "heater_501",
+        "dutyCycleProfile": "duty_2_2"
+      },
+      {
+        "sensorIndex": 2,
+        "heaterProfile": "heater_501",
+        "dutyCycleProfile": "duty_2_2"
+      },
+      {
+        "sensorIndex": 3,
+        "heaterProfile": "heater_501",
+        "dutyCycleProfile": "duty_2_2"
+      }
+    ]
+  }
+}
