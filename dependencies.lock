@@ -20,6 +20,13 @@ dependencies:
       path: .
       type: git
     version: 5b342d55689a7afb1c9b23f57551b73d3761eb80
+  BME68xLibrary:
+    component_hash: 6b048ddb0a3b9767e509c6ae9ab15c0992c218317587266a298125b53c6bbbf4
+    source:
+      git: https://github.com/xl9p/Bosch-BME68x-Library.git
+      path: .
+      type: git
+    version: d3009b5e577986fe2ed8b431be4b95f1e4e78813
   CayenneLPP:
     component_hash: null
     source:
@@ -33,12 +40,12 @@ dependencies:
       type: local
     version: 7.1.2
   SparkFun_ADXL345:
-    component_hash: 29570f9745eba3b02c5918bb1f586f1c90a725d069e685317a71a32ee42c46dd
+    component_hash: 6ee512d32cc05525b636c8136b643ebd65c216da2d35b9ce975e69e7d9ecd9bf
     source:
       git: https://github.com/xl9p/SparkFun_ADXL345_Arduino_Library.git
       path: .
       type: git
-    version: fb9df3daae168024f682a8dafd689b41c9963d4d
+    version: cb6b87fb7b8c6099ca28bb0f144d2a4b85376983
   arduino:
     component_hash: b55194fcf34d030e4f96f43c2e85427edbbd00f205501ea0cdb04ceb18e0dc3e
     source:
@@ -47,16 +54,22 @@ dependencies:
       type: git
     version: 78ff4548ae782faad92affcdd672111729bc30ad
   bblanchon/arduinojson:
-    component_hash: 914b05e5ba8d6b99d51307d4f5bf6a5ff610c673c200c3134edcc0a7a99d04b0
+    component_hash: aee8b75735f2d41f673c986ddf1ee2ccf94d8ad809f71cac862454c07d88b1b1
     source:
       service_url: https://api.components.espressif.com/
       type: service
-    version: 7.3.1
+    version: 7.4.1
   idf:
     component_hash: null
     source:
       type: idf
     version: 5.1.4
-manifest_hash: 3c767bb0e90d91717c098971fa421e665638d7ecd64ab621e61d050ceab2d10b
+  joltwallet/littlefs:
+    component_hash: 34b8c56a14f10b440845fe972ce34ef41d1d205bcb139b3dfc58983a10abf59b
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.19.1
+manifest_hash: e91c68f4205bdc457b0531395d330b7d2dc76f14d75a284efa2e2780854f5ea1
 target: esp32s3
 version: 1.0.0
