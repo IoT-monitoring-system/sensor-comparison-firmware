@@ -46,7 +46,7 @@ public:
 
   bool scheduleSensor();
 
-  // BMEMngrSensor(&getSensors());
+  std::vector<BME6xxSensor *> getSensors() const;
 
   esp_err_t sleepAll();
 

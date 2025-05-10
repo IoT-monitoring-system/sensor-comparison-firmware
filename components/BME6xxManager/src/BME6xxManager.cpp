@@ -61,6 +61,14 @@ bool BME6xxManager::scheduleSensor() {
   return scheduler.scheduleSensor(sensors);
 }
 
+std::vector<BME6xxSensor*> BME6xxManager::getSensors() const {
+  std::vector<BME6xxSensor*> devices;
+  for (const auto& sensor : sensors) {
+      devices.push_back(sensor.device);
+  }
+  return devices;
+}
+
 esp_err_t BME6xxManager::configure(FSFile &configFile) {
   if (state != BMEMngrState::INITIALIZED)
     return ESP_ERR_BME_MNGR_STATE_INVALID;
@@ -304,9 +312,7 @@ esp_err_t BME6xxManager::collectData(BMESensorData &sensData) {
       return err;
 
     return ESP_OK;
-  }
-
-  if (sensor->config.mode == BME6xxMode::PARALLEL) {
+  } else if (sensor->config.mode == BME6xxMode::PARALLEL) {
     uint8_t nFields, j = 0;
     nFields = sensor->device->bme6xxFetchData();
     sensor->device->bme6xxGetAllData(sensor->stateData.lastData, nFields);

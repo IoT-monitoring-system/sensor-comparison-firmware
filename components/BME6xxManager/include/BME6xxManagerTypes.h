@@ -7,7 +7,6 @@
 #include "esp_log.h"
 
 #include "Arduino.h"
-#include "commMux.h"
 
 #include "BME6xxSensor.h"
 
@@ -53,6 +52,8 @@ struct BMEDutyCycleProfile {
   uint64_t sleepDuration;
 };
 
+// struct BMECalibrationData {};
+
 struct BMESensorConfig {
   BMEHeaterProfile heaterProfile;
   BMEDutyCycleProfile dutyCycleProfile;
@@ -90,8 +91,5 @@ struct BMESensorData {
 
 typedef esp_err_t(setModeFunc)(BMEMngrSensor *sens, BME6xxMode mode);
 // typedef esp_err_t(setModeFunc)(BMEMngrSensor *sens);
-
-#define BME6XX_CONFIG_DEFAULT                                                  \
-  { . }
 
 #endif
