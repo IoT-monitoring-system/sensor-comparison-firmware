@@ -45,3 +45,6 @@
 [submodule "components/BME69xLibrary"]
 	path = components/BME69xLibrary
 	url = git@github.com:xl9p/BME69xLibrary.git
+[submodule "components/MakunaRTC"]
+	path = components/MakunaRTC
+	url = git@github.com:Makuna/Rtc.git
