@@ -45,3 +45,6 @@
 [submodule "components/BME69xLibrary"]
 	path = components/BME69xLibrary
 	url = git@github.com:xl9p/BME69xLibrary.git
+[submodule "components/RTClib"]
+	path = components/RTClib
+	url = git@github.com:xl9p/RTClib.git
