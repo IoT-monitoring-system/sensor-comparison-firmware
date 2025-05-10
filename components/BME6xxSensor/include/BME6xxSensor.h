@@ -16,6 +16,8 @@ public:
       uint16_t sharedHeatrDur,
       uint8_t profileLen) = 0;
 
+  virtual void bme6xxSetHeaterProf(uint16_t temp, uint16_t dur) = 0;
+
   virtual uint32_t bme6xxGetMeasDur(BME6xxMode opMode = BME6xxMode::SLEEP) = 0;
 
   virtual void bme6xxSetOS(
@@ -33,6 +35,7 @@ public:
   virtual uint8_t bme6xxFetchData() = 0;
 
   virtual size_t bme6xxGetAllData(BME6xxData *dataOut, size_t maxLen) = 0;
+  virtual size_t bme6xxGetData(BME6xxData &dataOut) = 0;
 
   virtual void bme6xxSelftestCheck() = 0;
 

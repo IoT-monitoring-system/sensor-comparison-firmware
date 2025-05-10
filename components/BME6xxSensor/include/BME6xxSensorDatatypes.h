@@ -4,7 +4,8 @@
 
 #include <cstdint>
 
-#define BME6XX_USE_FPU 0
+// #define BME6XX_DONT_USE_FPU
+#define BME6XX_USE_FPU
 
 enum BME6xxMask {
   HEAT_STAB_MSK = 0x10,
