@@ -322,7 +322,7 @@ esp_err_t Utilities::configureMQTT(const String &id, MQTT_CALLBACK_SIGNATURE) {
   client.setServer(MQTT_SERVER, MQTT_PORT);
   client.setCallback(callback);
 
-  for (uint8_t i = 0; i <= MQTT_MAX_RETRIES; ++i) {
+  for (uint8_t i = 0; i <= MQTT_MAX_RETRIES; i++) {
     ESP_LOGI(
         TAG_UTIL, "Connecting to MQTT, attempt %u/%u", i, MQTT_MAX_RETRIES);
 

@@ -2,7 +2,7 @@
   "configurations": [
     {
       "name": "ESP-IDF",
-      "compileCommands": "${workspaceFolder}/build.clang/compile_commands.json",
+      "compileCommands": "${workspaceFolder}/build/compile_commands.json",
       "includePath": [
         "${config:idf.espIdfPath}/components/**",
         "${config:idf.espIdfPathWin}/components/**",
@@ -14,7 +14,7 @@
           "${config:idf.espIdfPathWin}/components",
           "${workspaceFolder}"
         ],
-        "limitSymbolsToIncludedHeaders": true
+        "limitSymbolsToIncludedHeaders": false
       },
       "compilerPath": "${config:idf.toolsPath}/tools/xtensa-esp32s3-elf/esp-12.2.0_20230208/xtensa-esp32s3-elf/bin/xtensa-esp32s3-elf-gcc"
     }

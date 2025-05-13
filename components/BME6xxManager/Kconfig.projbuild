@@ -1,0 +1,8 @@
+menu "BME6XXManager Configuration"
+  config INCLUDE_BSEC
+      bool "Include the BSEC library"
+      default n
+      help
+          This option enables the BSEC library component.
+
+endmenu

@@ -312,7 +312,9 @@ esp_err_t BME6xxManager::collectData(BMESensorData &sensData) {
       return err;
 
     return ESP_OK;
-  } else if (sensor->config.mode == BME6xxMode::PARALLEL) {
+  }
+
+  if (sensor->config.mode == BME6xxMode::PARALLEL) {
     uint8_t nFields, j = 0;
     nFields = sensor->device->bme6xxFetchData();
     sensor->device->bme6xxGetAllData(sensor->stateData.lastData, nFields);

@@ -21,19 +21,19 @@ dependencies:
       type: git
     version: 5b342d55689a7afb1c9b23f57551b73d3761eb80
   BME68xLibrary:
-    component_hash: 6b048ddb0a3b9767e509c6ae9ab15c0992c218317587266a298125b53c6bbbf4
+    component_hash: 0c8a5319a577620a7a93e7e40530645483e390299e7591db433a9677f7f1b3e0
     source:
       git: https://github.com/xl9p/Bosch-BME68x-Library.git
       path: .
       type: git
-    version: d3009b5e577986fe2ed8b431be4b95f1e4e78813
+    version: 5f801784ec5e1346fdd41b2fc573b27577d3d301
   BME69xLibrary:
-    component_hash: 151f0a368d8c44ea40f80855e1a2ebd3d815e2e2b5a6013ed9bf70fda09b8ebc
+    component_hash: 25eb6e0d40fd193927b20944988086dadb23c967fd1afa697b056192951492dc
     source:
       git: https://github.com/xl9p/BME69xLibrary.git
       path: .
       type: git
-    version: 42347800ceea66f8f6ba5f37a4cec12638638410
+    version: 6818d5504a754789533f00b97cdb69dcf89b099b
   CayenneLPP:
     component_hash: null
     source:
@@ -47,12 +47,12 @@ dependencies:
       type: local
     version: 7.1.2
   SparkFun_ADXL345:
-    component_hash: 6ee512d32cc05525b636c8136b643ebd65c216da2d35b9ce975e69e7d9ecd9bf
+    component_hash: 93c06ef2b9e4cd15709104988decb640f3a0941b5f4ecce211864d1a809e320b
     source:
       git: https://github.com/xl9p/SparkFun_ADXL345_Arduino_Library.git
       path: .
       type: git
-    version: cb6b87fb7b8c6099ca28bb0f144d2a4b85376983
+    version: 9a1322294fc661ac4f778cd2eb571ef348d8aef8
   arduino:
     component_hash: e6a9f23bf72c1dab5b084908bda2d022fe75050e52121697070504071eae7258
     source:

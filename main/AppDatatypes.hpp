@@ -136,6 +136,12 @@ struct BME6XXData : MeasurementBase {
   float pressure;
   float humidity;
   float gasResistance;
+  float compensGasResistance;
+  float co2Eq;
+  float breathVOC;
+  float tvoc;
+  float iaq;
+  float staticIaq;
   int8_t sensorStable = -1;
   int8_t sensorRunIn = -1;
   int8_t gasIndex = -1;
@@ -149,6 +155,12 @@ struct BME6XXData : MeasurementBase {
     json["press"] = pressure;
     json["humid"] = humidity;
     json["gasRes"] = gasResistance;
+    json["compensGasRes"] = compensGasResistance;
+    json["co2Eq"] = co2Eq;
+    json["breathVOC"] = breathVOC;
+    json["tvoc"] = tvoc;
+    json["iaq"] = iaq;
+    json["staticIaq"] = staticIaq;
     if (gasIndex >= 0)
       json["gasIndex"] = gasIndex;
     if (sensorStable >= 0)

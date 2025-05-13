@@ -1,6 +1,6 @@
 #pragma once
-#ifndef STATEMANAGEMENT_H
-#define STATEMANAGEMENT_H
+#ifndef STATEMANAGEMENTMODULE_H
+#define STATEMANAGEMENTMODULE_H
 
 #if ESP_PLATFORM
 #include "esp_err.h"

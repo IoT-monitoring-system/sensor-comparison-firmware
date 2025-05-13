@@ -29,7 +29,7 @@
 #define MQTT_MAX_PAYLOAD_SIZE 1024
 #define MQTT_SERVER "xl9p.tplinkdns.com"
 #define MQTT_PORT 1883
-#define MQTT_USERNAME "first_client"
+#define MQTT_USERNAME "tracker"
 #define MQTT_PASSWORD "test12345"
 #define MQTT_MAX_RETRIES 10
 #define MQTT_RETRY_DELAY 5000
