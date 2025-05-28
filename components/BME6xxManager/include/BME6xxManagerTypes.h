@@ -85,6 +85,7 @@ struct BMEMngrSensor {
 
 struct BMESensorData {
   uint32_t sensorId = 0;
+  const char *type;
   BME6xxData data[3]{};
   size_t dataLen = 0;
 };

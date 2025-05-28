@@ -329,6 +329,7 @@ esp_err_t BME6xxManager::collectData(BMESensorData &sensData) {
           return ESP_ERR_SENSOR_DATA_MISS;
 
         sensData.data[j++] = sensor->stateData.lastData[i];
+        sensData.type = sensor->device->bme6xxGetType();
 
         scheduler.updateHeatingStep(
             *sensor,
