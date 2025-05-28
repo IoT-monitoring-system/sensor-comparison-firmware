@@ -1,14 +1,8 @@
 dependencies:
   idf: ">=5.1,<5.2"
-  RadioLib:
-    git: https://github.com/xl9p/RadioLib.git
-    version: master
   arduino:
     git: https://github.com/xl9p/arduino-esp32.git
     version: i2c_mutex_mod
-  CayenneLPP:
-    git: https://github.com/ElectronicCats/CayenneLPP.git
-    version: master
   Adafruit_BusIO:
     git: https://github.com/xl9p/Adafruit_BusIO.git
     version: modified
