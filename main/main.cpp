@@ -1,3 +1,5 @@
+#include <sstream>
+
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -35,6 +37,7 @@
 #include "AppModules/RTCSyncModule.h"
 #include "AppModules/StateManagementModule.h"
 #include "Config.h"
+#include "MQTTClient.h"
 #include "Utilities.h"
 
 static const char *TAG = "Main-App";
@@ -45,14 +48,12 @@ extern "C" void app_main();
 
 static StateManager *stateManager;
 
-RTCSyncModule rtc;
-
-uint64_t timeStartS = 0;
-char tdcLabel[TDC_LABEL_LENGTH] = "";
-char tdcSession[TDC_SESSION_LENGTH] = "";
-uint64_t tdcSchedStartTimeSec = 0U;
-uint64_t rtcToESPOffset = 0U;
-bool tdcScheduled = false;
+extern const uint8_t client_cert_pem_start[] asm("_binary_client_cert_pem_start");
+extern const uint8_t client_cert_pem_end[] asm("_binary_client_cert_pem_end");
+extern const uint8_t client_key_pem_start[] asm("_binary_client_key_pem_start");
+extern const uint8_t client_key_pem_end[] asm("_binary_client_key_pem_end");
+extern const uint8_t server_cert_pem_start[] asm("_binary_server_ca_pem_start");
+extern const uint8_t server_cert_pem_end[] asm("_binary_server_ca_pem_end");
 
 uint32_t ledColor = 0;
 uint8_t ledBright = 0;
@@ -61,26 +62,9 @@ uint32_t ledOffHold = portMAX_DELAY;
 SemaphoreHandle_t ledChangeSem;
 TaskHandle_t ledTask;
 
-FSManager fsManager;
+MQTTClient mqttClient;
 
-MeasurementModule measurementModule;
-MeasurementTask bmeMT;
-MeasurementTask bsecMT;
-
-EventConsumer<MeasurementTaskEvent>
-    MQTTConsumer{512, RINGBUF_TYPE_NOSPLIT, DEFAULT_ESWAITS_CONFIG};
-
-SPIClass SPIBus2(FSPI); // Specific pins
-SPIClass SPIBus3(HSPI); // Any pins
-
-Adafruit_NeoPixel ws2812b =
-    Adafruit_NeoPixel(1, WS2812B_PIN, NEO_RGB + NEO_KHZ800);
-
-// Make sure that the bme6xxManager sampling isn't running together with bsec,
-// otherwise there will be a confilct in sensor scheduling
-BME6xxManager bme6xxManager;
-BME69x bme690_1;
-BME69x bme690_2;
+Adafruit_NeoPixel ws2812b = Adafruit_NeoPixel(1, WS2812B_PIN, NEO_RGB + NEO_KHZ800);
 
 // TODO: Separate class
 void reportStatusLED(esp_err_t err) {
@@ -96,17 +80,14 @@ void reportStatusLED(esp_err_t err) {
       ledBright = 90;
       ledOnHold = 5000;
       ledOffHold = 1000;
-    } else if (
-        err > ESP_ERR_MEASUREMENT_TASK_BASE &&
-        err < ESP_ERR_MEASUREMENT_TASK_END) {
+    } else if (err > ESP_ERR_MEASUREMENT_TASK_BASE && err < ESP_ERR_MEASUREMENT_TASK_END) {
       ledColor = ws2812b.Color(255, 0, 0);
       ledBright = 90;
       ledOnHold = 5000;
       ledOffHold = 1000;
 
       // Measurement module error
-    } else if (
-        err > ESP_ERR_EVENT_SYSTEM_BASE && err < ESP_ERR_EVENT_SYSTEM_END) {
+    } else if (err > ESP_ERR_EVENT_SYSTEM_BASE && err < ESP_ERR_EVENT_SYSTEM_END) {
 
       ledColor = ws2812b.Color(255, 0, 0);
       ledBright = 90;
@@ -134,54 +115,6 @@ void reportStatusLED(esp_err_t err) {
 }
 
 // #region STATE CONTROL
-// State Normal
-esp_err_t stateNormalEnter() {
-  esp_err_t err = ESP_OK;
-  return err;
-}
-esp_err_t stateNormalExit() {
-  esp_err_t err = ESP_OK;
-  return err;
-}
-// State Normal
-
-// State Idle
-esp_err_t stateIdleEnter() {
-  bmeMT.stop();
-  return ESP_OK;
-}
-esp_err_t stateIdleExit() { return ESP_OK; }
-// State Idle
-
-// State Train Data Collection
-esp_err_t stateTrainDataCollectionEnter() {
-  esp_err_t err = ESP_OK;
-
-  ESP_LOGE(TAG, "About to start a MT");
-  err = bmeMT.start();
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to start bmeMT");
-    return err;
-  }
-  ESP_LOGE(TAG, "Started a MT");
-
-  return err;
-}
-esp_err_t stateTrainDataCollectionExit() {
-  esp_err_t err = ESP_OK;
-
-  err = bmeMT.stop();
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to stop bmeMT");
-    return err;
-  }
-
-  strncpy((char *)"", tdcLabel, 1);
-  tdcLabel[0] = '\0';
-
-  return err;
-}
-// State Train Data Collection
 
 void initStateManagement() {
   stateManager = StateManager::getInstance();
@@ -191,20 +124,11 @@ void initStateManagement() {
   }
   ESP_LOGI(TAG, "stateManager initialized%s", "");
 
-  stateManager->registerState(STATE_IDLE, stateIdleEnter, stateIdleExit);
-  stateManager->registerState(STATE_NORMAL, stateNormalEnter, stateNormalExit);
-  stateManager->registerState(
-      STATE_TRAIN_DATA_COLLECTION,
-      stateTrainDataCollectionEnter,
-      stateTrainDataCollectionExit);
-  ESP_LOGI(TAG, "States registered%s", "");
-
   stateManager->run();
 }
 
 // #endregion
 
-// #region INIT SYSTEM PERIPHERALS
 void initSerial() {
   Serial.begin(115200);
 
@@ -213,494 +137,93 @@ void initSerial() {
   vTaskDelay(pdMS_TO_TICKS(1000));
   ESP_LOGI(TAG, "Serial Initialized");
 }
-void initI2C() {
-  Wire.end();
-  if (!Wire.begin(I2C_SDA_BUS0, I2C_SCL_BUS0, I2C_FREQ_BUS0)) {
-    ESP_LOGE(TAG, "I2C Bus 0 init failed.");
-    reportStatusLED(ESP_FAIL);
-    return;
-  }
 
-  if (!Wire1.begin(I2C_SDA_BUS1, I2C_SCL_BUS1, I2C_FREQ_BUS1)) {
-    ESP_LOGE(TAG, "I2C Bus 1 init failed.");
-    reportStatusLED(ESP_FAIL);
-    return;
-  }
-  ESP_LOGI(TAG, "I2C Initialized");
-  vTaskDelay(pdMS_TO_TICKS(1000));
-}
-void initSPI() {
-  SPIBus2.begin();
-  ESP_LOGI(TAG, "SPI Bus 2 Initialized");
-
-  SPIBus3.begin(SPI_SCLK_BUS3, SPI_MISO_BUS3, SPI_MOSI_BUS3);
-  ESP_LOGI(TAG, "SPI Bus 3 Initialized");
-
-  vTaskDelay(pdMS_TO_TICKS(1000));
-}
-// #endregion
-
-void initRTC() {
-  esp_err_t err = ESP_OK;
-
-  err = rtc.begin(&Wire);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "RTC initialization failed");
-    return;
-  }
-
-  if (!rtc.isRunning()) {
-    ESP_LOGE(TAG, "RTC is not running, time is not configured");
-    return;
-  }
-
-  timeStartS = rtc.getRTCUnixTime();
-  rtcToESPOffset = timeStartS * 1000000ULL - esp_timer_get_time();
-}
-
-// #region INIT FILE SYSTEM
-bool initLittleFS() {
-  if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
-    ESP_LOGE(TAG, "LittleFS init failed");
-    reportStatusLED(ESP_FAIL);
-    return false;
-  }
-
-  ESP_LOGI(TAG, "LittleFS Initialized");
-  vTaskDelay(pdMS_TO_TICKS(1000));
-
-  return true;
-}
-bool initSD() {
-  if (!SD.begin(SPI_SD_CS_PIN, SPIBus2, SPI_FREQ_BUS2, "/", 15, true)) {
-    ESP_LOGE(TAG, "SD init failed");
-    reportStatusLED(ESP_FAIL);
-    return false;
-  }
-
-  ESP_LOGI(TAG, "SD Initialized");
-  vTaskDelay(pdMS_TO_TICKS(1000));
-
-  return true;
-}
-void initFSManager(file_system_type fsType) {
+void initMQTT() {
   esp_err_t error = ESP_OK;
 
-  switch (fsType) {
-  case FS_MANAGER_LITTLE_FS: {
-    if (!initLittleFS())
-      return;
-
-    error = fsManager.initializeFileSystem(LittleFS, FS_MANAGER_LITTLE_FS);
-    break;
-  }
-  case FS_MANAGER_SD: {
-    if (!initSD())
-      return;
-
-    error = fsManager.initializeFileSystem(SD, FS_MANAGER_SD);
-    break;
-  }
-  default: {
-    ESP_LOGE(TAG, "Invalid FS type");
-    break;
-  }
-  }
-
+  error = mqttClient.start();
   if (error != ESP_OK) {
-    ESP_LOGE(TAG, "FSManager init fail");
-    reportStatusLED(ESP_FAIL);
+    ESP_LOGE(TAG, "Error starting MQTT client, %u", error);
     return;
   }
 
-  ESP_LOGI(TAG, "FSManager Initialized");
-  vTaskDelay(1000);
-}
-// #endregion
-
-// #region MQTT RELATED
-void MQTTCTRLcallback(char *topic, byte *payload, unsigned int length) {
-  byte copiedData[length];
-  memcpy(copiedData, payload, length);
-
-  std::string message;
-  for (unsigned int i = 0; i < length; i++) {
-    message += (char)payload[i];
-  }
-
-  JsonDocument doc;
-
-  DeserializationError error = deserializeJson(doc, message);
-  if (error) {
-    ESP_LOGE(TAG, "deserializeJson() failed, error: %s", error.c_str());
-    return;
-  }
-
-  CTRLData ctrlData = Utilities::jsonToCTRLData(doc);
-
-  esp_err_t err = ESP_OK;
-  switch (ctrlData.cmd) {
-  case REC_TRAIN_DATA_STATE_SET_FREQ: {
-    err = bmeMT.setSamplingRate(ctrlData.arg.f);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "REC_TRAIN_DATA_STATE_SET_FREQ setSamplingRate failed");
-      return;
-    }
-    break;
-  }
-  case REC_TRAIN_DATA_STATE_SET_LABEL: {
-    strncpy(tdcLabel, ctrlData.arg.str, sizeof(tdcLabel));
-    break;
-  }
-  case REC_TRAIN_DATA_STATE_SET_SESSION: {
-    strncpy(tdcSession, ctrlData.arg.str, sizeof(tdcSession));
-    break;
-  }
-  case REC_TRAIN_DATA_STATE_SCHED_START_TIME: {
-    tdcSchedStartTimeSec = ctrlData.arg.llui;
-    tdcScheduled = true;
-    stateManager->requestTransition(AppState::STATE_TRAIN_DATA_COLLECTION);
-    break;
-  }
-  case SET_STATE: {
-    ESP_LOGI(
-        TAG, "MQTT state transition request, received data length: %u", length);
-    stateManager->requestTransition((AppState)ctrlData.arg.lui);
-    break;
-  }
-  default: {
-    ESP_LOGW(
-        TAG, "Unknown command, length: %u, command: %i", length, ctrlData.cmd);
-    break;
-  }
+  MQTTAddressConfig addrCfg = {
+      .hostname = MQTT_SERVER,
+      .transport = MQTT_TRANSPORT_OVER_SSL,
+      .path = "/",
+      .port = MQTT_PORT,
   };
+  error = mqttClient.setAddressCfg(&addrCfg);
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Error setting MQTT address config, %u", error);
+    return;
+  }
+
+  MQTTVerificationConfig verCfg = {
+      .certificate = (const char *)server_cert_pem_start,
+  };
+  error = mqttClient.setVerificationCfg(&verCfg);
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Error setting MQTT verification config, %u", error);
+    return;
+  }
+
+  MQTTCredentialsConfig credCfg = {
+      .username = MQTT_USERNAME,
+      .client_id = DEVICE_ID,
+  };
+  error = mqttClient.setCredentialsCfg(&credCfg);
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Error setting MQTT credentials config, %u", error);
+    return;
+  }
+
+  MQTTAuthenticationConfig authCfg = {
+      .password = MQTT_PASSWORD,
+      .certificate = (const char *)client_cert_pem_start,
+      .key = (const char *)client_key_pem_start,
+  };
+  error = mqttClient.setAuthenticationCfg(&authCfg);
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Error setting MQTT authentication config, %u", error);
+    return;
+  }
+
+  error = mqttClient.connect(true, 15000);
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Error connecting to MQTT broker, %u", error);
+    return;
+  }
+
+  error = mqttClient.subscribe(MQTT_TOPIC_CTRL_PATH, 0);
+  error = mqttClient.subscribe(MQTT_TOPIC_CLUSTER_CTRL_PATH, 0);
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Error subscribing to MQTT topics, %u", error);
+    return;
+  }
 }
-void initWiFiTimeMQTT() {
+
+void initWiFi() {
   esp_err_t res = ESP_OK;
 
   res = Utilities::configureWiFi();
   if (res != ESP_OK)
     return;
-
-  res = Utilities::configureMQTT(DEVICE_ID, MQTTCTRLcallback);
-  if (res != ESP_OK)
-    return;
-
-  res = Utilities::MQTTSubscribe(MQTT_TOPIC_CTRL_PATH);
-  if (res != ESP_OK)
-    return;
-  res = Utilities::MQTTSubscribe(MQTT_TOPIC_CLUSTER_CTRL_PATH);
-  if (res != ESP_OK)
-    return;
-}
-void mqttLoopTask(void *pvParameter) {
-  while (1) {
-    if (!Utilities::MQTTRun())
-      initWiFiTimeMQTT();
-    vTaskDelay(pdMS_TO_TICKS(1000U / MQTT_LOOP_POLL_FREQ));
-  }
 }
 void mqttDataSendTask(void *pvParameter) {
-  float delay = std::abs(MQTT_DATA_SEND_FREQ) == 0
-                    ? 0
-                    : 1000 / std::abs(MQTT_DATA_SEND_FREQ);
-
-  JsonDocument doc;
-  JsonObject root = doc.to<JsonObject>();
-
-  MQTTDataContainer mqttData(DEVICE_ID, CLUSTER_ID);
+  float delay = std::abs(MQTT_DATA_SEND_FREQ) == 0 ? 0 : 1000 / std::abs(MQTT_DATA_SEND_FREQ);
+  std::stringstream ss;
   while (1) {
-    while (mqttData.objects.size() < MQTT_MAX_AGGREGATE_PACKETS) {
-      struct EventDescriptor<MeasurementTaskEvent> *item;
-      MQTTConsumer.listenForEvents(
-          sizeof(struct EventDescriptor<MeasurementTaskEvent>),
-          &item,
-          portMAX_DELAY,
-          portMAX_DELAY);
+    ss.str("");
+    ss.clear();
 
-      if (item) {
-        if (item->event == MEASUREMENT_TASK_DATA_UPDATE_EVENT) {
-          if (item->data) {
-            auto *data = static_cast<MeasurementBase *>(item->data);
+    ss << "Time: " << esp_timer_get_time();
 
-            std::unique_ptr<MeasurementBase> ptr(std::move(data));
-
-            mqttData.addObject(std::move(ptr));
-
-            item->data = nullptr;
-          }
-        }
-        delete item;
-      }
-    }
-
-    if (mqttData.objects.size()) {
-      mqttData.label = std::string(tdcLabel);
-      mqttData.session = std::string(tdcSession);
-      mqttData.prepareJSONRepresentation(root);
-      mqttData.setTimeposix(rtc.getRTCUnixTime()); // Time here
-      if (Utilities::MQTTPublish(MQTT_TOPIC_DATA_PATH, doc) != ESP_OK) {
-        initWiFiTimeMQTT();
-      }
-      mqttData.eraseObjects();
-      doc.clear();
-    }
+    mqttClient.publish(MQTT_TOPIC_DATA_PATH, ss.str().c_str(), 2, 0);
 
     vTaskDelay(pdMS_TO_TICKS(delay));
   }
 }
-// #endregion
-
-// #region BME6XX RELATED
-esp_err_t bmeMTPostStopHook() {
-  esp_err_t err = ESP_OK;
-
-  ESP_LOGI(TAG, "Executed post stop hook");
-
-  err = bme6xxManager.sleepAll();
-
-  // bme6xxManager.resetSensors();
-  return err;
-}
-esp_err_t bmeMTPreStartHook() {
-  esp_err_t err = ESP_OK;
-  // bme6xxManager.loadConfig(FSFile & configFile);
-
-  // bme6xxManager.configure();
-  // bme6xxManager.begin();
-
-  return err;
-}
-
-esp_err_t bme6xxMeasurementFunc(MeasurementProducerHelper &eventProducer) {
-  esp_err_t err = ESP_OK;
-
-  if (tdcScheduled) {
-    uint64_t timeNowUS = esp_timer_get_time() + rtcToESPOffset;
-    uint64_t tdcSchedStartTimeUS = tdcSchedStartTimeSec * 1000000ULL;
-
-    if (tdcSchedStartTimeUS < timeNowUS) {
-      ESP_LOGE(
-          TAG,
-          "Scheduled time is invalid; Scheduled: %llu; Now: %llu",
-          tdcSchedStartTimeUS,
-          timeNowUS);
-      reportStatusLED(ESP_ERR_TIME_SCHEDULE_INVALID);
-
-      return ESP_ERR_TIME_SCHEDULE_INVALID;
-    }
-
-    uint64_t sleepTimeUS = (tdcSchedStartTimeUS - timeNowUS);
-
-    ESP_LOGI(
-        TAG,
-        "Scheduled time: %llu; Time now: %llu; Sleep time: %llu",
-        tdcSchedStartTimeUS,
-        timeNowUS,
-        sleepTimeUS);
-
-    vTaskDelay(pdMS_TO_TICKS(sleepTimeUS / 1000));
-
-    tdcScheduled = false;
-  }
-
-  BMESensorData sensorData{};
-  while (bme6xxManager.scheduleSensor()) {
-    err = bme6xxManager.collectData(sensorData);
-
-    if (err == ESP_ERR_SENSOR_NO_NEW_DATA) {
-      err = ESP_OK;
-    }
-
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "Error: %i", err);
-      return err;
-    }
-
-    for (uint8_t i = 0; i < sensorData.dataLen; i++) {
-      uint64_t timestampNow = esp_timer_get_time();
-      timeStartS = rtc.getRTCUnixTime();
-
-      BME6XXData newEventData{};
-      newEventData.gasIndex = sensorData.data[i].gas_index;
-      newEventData.gasResistance = sensorData.data[i].gas_resistance;
-      newEventData.humidity = sensorData.data[i].humidity;
-      newEventData.pressure = (sensorData.data[i].pressure * 0.01f);
-      newEventData.temperature = sensorData.data[i].temperature;
-      newEventData.sensorId = sensorData.sensorId;
-      newEventData.timestamp =
-          (timeStartS * 1000000U) -
-          (timestampNow - sensorData.data[i].meas_timestamp);
-      newEventData.sensorStable =
-          (sensorData.data[i].status & HEAT_STAB_MSK) ? 1 : 0;
-      newEventData.size = sizeof(newEventData);
-
-      // ESP_LOGI(
-      //     TAG,
-      //     "Sensor ID: %lu; Heater index: %u; Gas resistance: %f; Humidity:
-      //     %f; " "Pressure: %f; Temperature: %f; Timestamp: %llu",
-      //     newEventData.sensorId,
-      //     newEventData.gasIndex,
-      //     newEventData.gasResistance,
-      //     newEventData.humidity,
-      //     newEventData.pressure,
-      //     newEventData.temperature,
-      //     newEventData.timestamp);
-
-      ESP_LOGI(TAG, "Sending measurement");
-
-      err = eventProducer.produceMeasurement(
-          (void *)&newEventData, newEventData.size);
-
-      if (err != ESP_OK) {
-        reportStatusLED(err);
-        return err;
-      }
-    }
-  }
-
-  vTaskDelay(pdMS_TO_TICKS(10));
-
-  return err;
-}
-void initBME6xx_n() {
-  int8_t res = 0;
-  // bme688_1.begin(0x77, Wire);
-  // res = bme688_1.checkStatus();
-  // if (res != BME68X_OK) {
-  //   ESP_LOGE(TAG, "Error initializing bme688_1 sensor, code: %i", res);
-  //   reportStatusLED(ESP_ERR_BME6XX_DRIVER_ERROR);
-  //   return;
-  // }
-  // ESP_LOGI(TAG, "bme688_1 Initialized");
-
-  // bme688_2.begin(0x77, Wire1);
-  // res = bme688_2.checkStatus();
-  // if (res != BME68X_OK) {
-  //   ESP_LOGE(TAG, "Error initializing bme688_2 sensor, code: %i", res);
-  //   reportStatusLED(ESP_ERR_BME6XX_DRIVER_ERROR);
-  //   return;
-  // }
-  // ESP_LOGI(TAG, "bme688_2 Initialized");
-
-  bme690_1.begin(0x76, Wire);
-  res = bme690_1.checkStatus();
-  if (res != BME69X_OK) {
-    ESP_LOGE(TAG, "Error initializing bme690_1 sensor, code: %i", res);
-    return;
-  }
-  ESP_LOGI(TAG, "bme690_1 Initialized");
-
-  // bme690_2.begin(0x76, Wire1);
-  // res = bme690_2.checkStatus();
-  // if (res != BME69X_OK) {
-  //   ESP_LOGE(TAG, "Error initializing bme690_2 sensor, code: %i", res);
-  //   return;
-  // }
-  // ESP_LOGI(TAG, "bme690_2 Initialized");
-
-  // comm_mux_beginI2C(Wire);
-
-  // for (uint8_t i = 1; i < NUM_BME6XX_UNITS; i++) {
-  //   comm_setup[i] = comm_mux_set_config(Wire, SPIBus3, i, comm_setup[i]);
-
-  //   bme688_n[i].begin(
-  //       BME68X_SPI_INTF,
-  //       comm_mux_read,
-  //       comm_mux_write,
-  //       comm_mux_delay,
-  //       &comm_setup[i]);
-  //   res = bme688_n[i].checkStatus();
-  //   if (res != BME68X_OK) {
-  //     ESP_LOGE(TAG, "Error initializing bme688_%u sensor, code: %i", i, res);
-  //     reportStatusLED(ESP_ERR_BME6XX_DRIVER_ERROR);
-  //     return;
-  //   }
-  // }
-  vTaskDelay(pdMS_TO_TICKS(1000));
-}
-
-void initBMEManager() {
-  esp_err_t err = ESP_OK;
-
-  std::unique_ptr<FSFile> bmeCfg(
-      fsManager.readFile("/x8default_1sens.bmeconfig"));
-
-  // err = bme6xxManager.addSensor(bme688_1, true);
-  // if (err != ESP_OK) {
-  //   ESP_LOGE(
-  //       TAG, "Failed to add bme688_1 sensor to bme6xxManager, err: %i", err);
-  //   reportStatusLED(err);
-
-  //   return;
-  // }
-
-  // err = bme6xxManager.addSensor(bme688_2, true);
-  // if (err != ESP_OK) {
-  //   ESP_LOGE(
-  //       TAG, "Failed to add bme688_2 sensor to bme6xxManager, err: %i", err);
-  //   reportStatusLED(err);
-
-  //   return;
-  // }
-
-  err = bme6xxManager.addSensor(bme690_1, true);
-  if (err != ESP_OK) {
-    ESP_LOGE(
-        TAG, "Failed to add bme690_1 sensor to bme6xxManager, err: %i", err);
-    return;
-  }
-
-  // err = bme6xxManager.addSensor(bme690_2, true);
-  // if (err != ESP_OK) {
-  //   ESP_LOGE(
-  //       TAG, "Failed to add bme690_2 sensor to bme6xxManager, err: %i", err);
-  //   return;
-  // }
-
-  err = bme6xxManager.configure(*bmeCfg);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to load config in bme6xxManager, err: %i", err);
-    return;
-  }
-
-  err = bme6xxManager.begin();
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to start bme6xxManager, err: %i", err);
-    return;
-  }
-
-  MeasurementTaskConfig taskConfig{
-      .sampleRate = CONFIG_TELE_BME688_SAMPLING_FREQUENCY,
-      .usStackDepth = 8192U,
-      .xCoreID = 0U,
-      .uxPriority = 5U,
-      .pcName = (char *)"BME688",
-      .sendWaitTicks = pdMS_TO_TICKS(5000),
-      .accessWaitTicks = pdMS_TO_TICKS(1000),
-      .receiveWaitTicks = pdMS_TO_TICKS(10000),
-  };
-
-  err = bmeMT.registerHook(bmeMTPostStopHook, MT_POST_STOP_HOOK);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "bmeManager registerHook failed");
-    return;
-  }
-  err = bmeMT.setMeasurementTask(bme6xxMeasurementFunc);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "bmeManager setMeasurementTask failed");
-    return;
-  }
-  err = bmeMT.configure(taskConfig);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "bmeManager configure failed");
-    return;
-  }
-  ESP_LOGI(TAG, "bmeManager Initialized");
-
-  vTaskDelay(pdMS_TO_TICKS(1000));
-}
-// #endregion
 
 // #region WS2812 RELATED
 void initWS2812b(void) {
@@ -746,47 +269,10 @@ void app_main() {
   if (ledChangeSem == NULL)
     ESP_LOGE(TAG, "Failed to create mutex");
 
-  xTaskCreatePinnedToCore(&ws2812b_cycler, "led", 4096, NULL, 3, &ledTask, 0);
+  xTaskCreatePinnedToCore(&ws2812b_cycler, "led", 2048, NULL, 3, &ledTask, 0);
 
-  initSerial();
-  initI2C();
-  initSPI();
+  initWiFi();
+  initMQTT();
 
-  initRTC();
-
-  initFSManager(FS_MANAGER_LITTLE_FS);
-
-  initWiFiTimeMQTT();
-
-  initBME6xx_n();
-  initBMEManager();
-
-  xTaskCreatePinnedToCore(
-      &mqttDataSendTask, "mqttTask", 4096, NULL, 10, NULL, 1);
-  xTaskCreatePinnedToCore(
-      &mqttLoopTask, "mqttLoopTask", 4096, NULL, 10, NULL, 1);
-
-  esp_err_t res;
-
-  res = bmeMT.registerEventConsumer(
-      &MQTTConsumer, MEASUREMENT_TASK_DATA_UPDATE_EVENT);
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "bmeMT.registerEventConsumer() failed");
-    return;
-  }
-  ESP_LOGI(TAG, "Registered event consumers%s", "");
-
-  res = measurementModule.configure();
-  if (res != ESP_OK) {
-    ESP_LOGE(TAG, "measurementModule.configure() failed");
-    return;
-  }
-  ESP_LOGI(TAG, "Configured measurement module%s", "");
-
-  vTaskDelay(pdMS_TO_TICKS(5000));
-
-  reportStatusLED(ESP_OK);
-
-  ESP_LOGI(TAG, "app_main state transition request");
-  stateManager->requestTransition(STATE_IDLE);
-}
+  xTaskCreatePinnedToCore(&mqttDataSendTask, "mqttTask", 8196, NULL, 10, NULL, 1);
+};
