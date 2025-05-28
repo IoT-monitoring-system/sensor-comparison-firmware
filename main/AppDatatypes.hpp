@@ -131,6 +131,8 @@ struct PowerTelemetryData : MeasurementBase {
 };
 
 struct BME6XXData : MeasurementBase {
+  const char *type;
+  uint8_t sensorIdx;
   uint32_t sensorId;
   float temperature;
   float pressure;
@@ -149,7 +151,7 @@ struct BME6XXData : MeasurementBase {
   void prepareJSONRepresentation(JsonObject &json) override {
     MeasurementBase::prepareJSONRepresentation(json);
 
-    json["type"] = "BME688";
+    json["type"] = type;
     json["s_Id"] = sensorId;
     json["temp"] = temperature;
     json["press"] = pressure;
