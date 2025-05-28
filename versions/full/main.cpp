@@ -487,7 +487,7 @@ void MQTTCTRLcallback(char *topic, byte *payload, unsigned int length) {
   }
   };
 }
-void initWiFiTimeMQTT() {
+void initWiFiMQTT() {
   esp_err_t res = ESP_OK;
 
   res = Utilities::configureWiFi();
@@ -508,7 +508,7 @@ void initWiFiTimeMQTT() {
 void mqttLoopTask(void *pvParameter) {
   while (1) {
     if (!Utilities::MQTTRun())
-      initWiFiTimeMQTT();
+      initWiFiMQTT();
     vTaskDelay(pdMS_TO_TICKS(1000U / MQTT_LOOP_POLL_FREQ));
   }
 }
@@ -552,7 +552,7 @@ void mqttDataSendTask(void *pvParameter) {
       mqttData.prepareJSONRepresentation(root);
       mqttData.setTimeposix(rtc.getRTCUnixTime()); // Time here
       if (Utilities::MQTTPublish(MQTT_TOPIC_DATA_PATH, doc) != ESP_OK) {
-        initWiFiTimeMQTT();
+        initWiFiMQTT();
       }
       mqttData.eraseObjects();
       doc.clear();
@@ -1350,7 +1350,7 @@ void app_main() {
 
   initFSManager(FS_MANAGER_LITTLE_FS);
 
-  initWiFiTimeMQTT();
+  initWiFiMQTT();
 
   // initINA260();
   // initADXL345();
