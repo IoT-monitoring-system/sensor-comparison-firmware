@@ -1,7 +1,6 @@
 #include "Utilities.h"
 
 WiFiClient espClient;
-PubSubClient client(espClient);
 
 static int32_t task_create_pinned_to_core_wrapper(
     void *task_func,
@@ -49,13 +48,6 @@ inline bool checkTimeSync() {
 inline bool checkWiFiConn() {
   if (WiFi.status() != WL_CONNECTED) {
     ESP_LOGE(TAG_UTIL, "WiFi is not connected, rc=%u", WiFi.status());
-    return false;
-  }
-  return true;
-}
-inline bool checkMQTTConn() {
-  if (!client.connected()) {
-    ESP_LOGE(TAG_UTIL, "MQTT is not connected, rc=%i", client.state());
     return false;
   }
   return true;
@@ -313,74 +305,3 @@ esp_err_t Utilities::configureWiFi() {
 
   return ESP_FAIL;
 }
-
-esp_err_t Utilities::configureMQTT(const String &id, MQTT_CALLBACK_SIGNATURE) {
-  if (checkMQTTConn()) {
-    return ESP_OK;
-  }
-
-  client.setServer(MQTT_SERVER, MQTT_PORT);
-  client.setCallback(callback);
-
-  for (uint8_t i = 0; i <= MQTT_MAX_RETRIES; i++) {
-    ESP_LOGI(
-        TAG_UTIL, "Connecting to MQTT, attempt %u/%u", i, MQTT_MAX_RETRIES);
-
-    client.connect(id.c_str(), MQTT_USERNAME, MQTT_PASSWORD);
-
-    if (checkMQTTConn()) {
-      return ESP_OK;
-    }
-
-    if (i <= MQTT_MAX_RETRIES) {
-      ESP_LOGE(
-          TAG_UTIL,
-          "MQTT connection failed, retrying in %u milliseconds",
-          MQTT_RETRY_DELAY);
-    } else {
-      break;
-    }
-    vTaskDelay(pdMS_TO_TICKS(MQTT_RETRY_DELAY));
-  }
-  ESP_LOGE(TAG_UTIL, "MQTT connection failed, exiting%s", "");
-
-  return ESP_FAIL;
-}
-
-esp_err_t Utilities::MQTTPublish(const String &topic, const JsonDocument &doc) {
-  char jsonMessage[MQTT_MAX_PAYLOAD_SIZE];
-  serializeJson(doc, jsonMessage);
-
-  if (client.publish(topic.c_str(), jsonMessage)) {
-    return ESP_OK;
-  } else {
-    ESP_LOGE(TAG_UTIL, "Failed to publish message%s", "");
-    return ESP_FAIL;
-  }
-}
-
-esp_err_t Utilities::MQTTSubscribe(const String &topic) {
-  if (client.subscribe(topic.c_str())) {
-    ESP_LOGI(
-        TAG_UTIL, "MQTT successfully subscribed to %s topic", topic.c_str());
-    return ESP_OK;
-  }
-  ESP_LOGE(TAG_UTIL, "MQTT failed to subscribe to %s topic", topic.c_str());
-
-  return ESP_FAIL;
-}
-
-esp_err_t Utilities::MQTTUnsubscribe(const String &topic) {
-  if (client.unsubscribe(topic.c_str())) {
-    ESP_LOGI(
-        TAG_UTIL,
-        "MQTT successfully unsubscribed from %s topic",
-        topic.c_str());
-    return ESP_OK;
-  }
-  ESP_LOGE(TAG_UTIL, "MQTT failed to unsubscribe from %s topic", topic.c_str());
-
-  return ESP_FAIL;
-}
-
-bool Utilities::MQTTRun() { return client.loop(); }

@@ -52,7 +52,7 @@
 #define MQTT_LOOP_POLL_FREQ 1
 /* A value of 0 would mean that MQTT task will send any data as soon as it
  * becomes available */
-#define MQTT_DATA_SEND_FREQ 100
+#define MQTT_DATA_SEND_FREQ 10
 
 #define MQTT_MAX_AGGREGATE_PACKETS 1
 #define MQTT_TOPIC_ROOT_PATH "IoT-Monitoring-System"

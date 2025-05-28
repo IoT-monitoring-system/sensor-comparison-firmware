@@ -14,7 +14,6 @@
 #include "freertos/queue.h"
 
 #include "ArduinoJson.h"
-#include "PubSubClient.h"
 
 #include "AppDatatypes.hpp"
 
@@ -28,8 +27,8 @@
 
 #define MQTT_MAX_PAYLOAD_SIZE 1024
 #define MQTT_SERVER "xl9p.tplinkdns.com"
-#define MQTT_PORT 1883
-#define MQTT_USERNAME "tracker"
+#define MQTT_PORT 8884
+#define MQTT_USERNAME "tracker0"
 #define MQTT_PASSWORD "test12345"
 #define MQTT_MAX_RETRIES 10
 #define MQTT_RETRY_DELAY 5000
@@ -51,13 +50,6 @@ public:
 
   static esp_err_t configureTime();
   static esp_err_t configureWiFi();
-  static esp_err_t configureMQTT(const String &id, MQTT_CALLBACK_SIGNATURE);
-
-  static esp_err_t MQTTPublish(const String &topic, const JsonDocument &doc);
-  static esp_err_t MQTTSubscribe(const String &topic);
-  static esp_err_t MQTTUnsubscribe(const String &topic);
-
-  static bool MQTTRun();
 };
 
 #endif
