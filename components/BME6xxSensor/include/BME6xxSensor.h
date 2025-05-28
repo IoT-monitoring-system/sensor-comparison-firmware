@@ -40,6 +40,8 @@ public:
   virtual void bme6xxSelftestCheck() = 0;
 
   virtual void bme6xxSoftReset() = 0;
+
+  virtual const char *bme6xxGetType() = 0;
 };
 
 #endif
