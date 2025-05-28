@@ -205,6 +205,11 @@
         "sensorIndex": 0,
         "heaterProfile": "heater_354",
         "dutyCycleProfile": "duty_1"
+      },
+            {
+        "sensorIndex": 1,
+        "heaterProfile": "heater_354",
+        "dutyCycleProfile": "duty_1"
       }
 	]
   }
