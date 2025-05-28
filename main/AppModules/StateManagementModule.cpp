@@ -49,20 +49,29 @@ void StateManager::registerState(
   stateHandlers[state] = StateHandler{state, enter, exit};
 }
 
-void StateManager::requestTransition(AppState state) {
+esp_err_t StateManager::requestTransition(AppState state) {
   if (state >= STATE_COUNT) {
     ESP_LOGE(TAG_STATE_MANAGEMENT, "Unknown state requested");
-    return;
+    return ESP_ERR_SM_STATE_INVALID;
   }
 
   if (xSemaphoreTake(
           stateTransitionMutex,
           pdMS_TO_TICKS(STATE_MANAGEMENT_TRANSITION_MUX_TIMEOUT)) == pdFALSE) {
     ESP_LOGE(TAG_STATE_MANAGEMENT, "rT, State transition mutex timeout%s", "");
-    return;
+    return ESP_ERR_SM_TRANSITION_TIMEOUT;
   }
+
+  if (!transitionHandled) {
+    ESP_LOGE(TAG_STATE_MANAGEMENT, "Unhandled state pending");
+    return ESP_ERR_SM_TRANSITION_PENDING;
+  }
+
   nextState = state;
+  transitionHandled = false;
   xSemaphoreGive(stateTransitionMutex);
+
+  return ESP_OK;
 }
 
 void StateManager::runSmTask(void *pvParameter) {
@@ -89,14 +98,6 @@ void StateManager::runSmTask(void *pvParameter) {
           "Current State: %i; Entering: %i",
           currentState,
           nextState);
-      if (xSemaphoreTake(
-              stateTransitionMutex,
-              pdMS_TO_TICKS(STATE_MANAGEMENT_TRANSITION_MUX_TIMEOUT)) ==
-          pdFALSE) {
-        ESP_LOGE(
-            TAG_STATE_MANAGEMENT, "smT, State transition mutex timeout%s", "");
-        return;
-      }
 
       if (stateHandlers[currentState].onExit) {
         ESP_LOGI(TAG_STATE_MANAGEMENT, "Executing onExit state handler");
@@ -115,6 +116,16 @@ void StateManager::runSmTask(void *pvParameter) {
       if (enterStateError != ESP_OK) {
         xTaskNotifyGive(stateTransitionErrorTaskHandle);
       }
+
+      if (xSemaphoreTake(
+              stateTransitionMutex,
+              pdMS_TO_TICKS(STATE_MANAGEMENT_TRANSITION_MUX_TIMEOUT)) ==
+          pdFALSE) {
+        ESP_LOGE(
+            TAG_STATE_MANAGEMENT, "smT, State transition mutex timeout%s", "");
+        return;
+      }
+      transitionHandled = true;
       xSemaphoreGive(stateTransitionMutex);
     }
 

@@ -22,6 +22,15 @@ typedef int esp_err_t;
 #define STATE_MANAGEMENT_STATE_TRANSITION_ERROR_TASK_PRIO 20
 #define STATE_MANAGEMENT_TASK_PRIO 19
 
+#define ESP_ERR_SM_BASE 0x7900
+#define ESP_ERR_SM_TRANSITION_TIMEOUT (1U + ESP_ERR_SM_BASE)
+#define ESP_ERR_SM_TRANSITION_FAIL (2U + ESP_ERR_SM_BASE)
+#define ESP_ERR_SM_TRANSITION_PENDING (3U + ESP_ERR_SM_BASE)
+#define ESP_ERR_SM_STATE_INVALID (4U + ESP_ERR_SM_BASE)
+// #define ESP_ERR_SM_TRANSITION_TIMEOUT (5U + ESP_ERR_SM_BASE)
+
+#define ESP_ERR_SM_END 0x7A00
+
 typedef esp_err_t (*StateFunc)(void);
 
 struct StateHandler {
@@ -35,6 +44,8 @@ private:
   static StateManager *instance_p;
   static StaticSemaphore_t instance_static_mux;
   static SemaphoreHandle_t instance_mux;
+
+  bool transitionHandled = false;
 
   AppState defaultState;
 
@@ -70,7 +81,7 @@ public:
   static StateManager *getInstance();
 
   void registerState(AppState state, StateFunc enter, StateFunc exit);
-  void requestTransition(AppState state);
+  esp_err_t requestTransition(AppState state);
 
   void run();
 };
