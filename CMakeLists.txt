@@ -10,3 +10,8 @@ add_definitions(
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(node-firmware)
+
+
+target_add_binary_data(${CMAKE_PROJECT_NAME}.elf "main/certs/client_cert.pem" TEXT)
+target_add_binary_data(${CMAKE_PROJECT_NAME}.elf "main/certs/client_key.pem" TEXT)
+target_add_binary_data(${CMAKE_PROJECT_NAME}.elf "main/certs/server_ca.pem" TEXT)
