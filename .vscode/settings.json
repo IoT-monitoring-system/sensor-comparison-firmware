@@ -117,7 +117,8 @@
         "stop_token": "cpp",
         "syncstream": "cpp",
         "thread": "cpp",
-        "typeindex": "cpp"
+        "typeindex": "cpp",
+        "esp_transport.h": "c"
     },
     "idf.pythonInstallPath": "/opt/esp/python_env/idf5.1_py3.8_env/bin/python",
     "idf.customExtraVars": {
@@ -130,6 +131,11 @@
     "chat.agent.maxRequests": 0,
     "chat.commandCenter.enabled": false,
     "chat.focusWindowOnConfirmation": false,
-    "telemetry.feedback.enabled": false //,
+    "telemetry.feedback.enabled": false,
+    "editor.gotoLocation.multipleDeclarations": "gotoAndPeek",
+    "editor.gotoLocation.multipleDefinitions": "gotoAndPeek",
+    "editor.gotoLocation.multipleImplementations": "gotoAndPeek",
+    "editor.gotoLocation.multipleReferences": "gotoAndPeek",
+    "editor.gotoLocation.multipleTypeDefinitions": "gotoAndPeek" //,
     // "idf.svdFilePath": "${workspaceFolder}/svd-main/svd/${IDF_TARGET}.svd"
 }
