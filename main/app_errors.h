@@ -1,0 +1,26 @@
+#pragma once
+#ifndef APP_ERRORS_H
+#define APP_ERRORS_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define ESP_ERR_MAIN_APP_BASE                0x8000U
+#define ESP_ERR_MAIN_APP_BME690_FAIL         (ESP_ERR_MAIN_APP_BASE + 1U)
+#define ESP_ERR_MAIN_APP_BME690_BSEC_FAIL    (ESP_ERR_MAIN_APP_BASE + 2U)
+#define ESP_ERR_MAIN_APP_I2C_FAIL            (ESP_ERR_MAIN_APP_BASE + 3U)
+#define ESP_ERR_MAIN_APP_ADC_FAIL            (ESP_ERR_MAIN_APP_BASE + 4U)
+#define ESP_ERR_MAIN_APP_WIFI_FAIL           (ESP_ERR_MAIN_APP_BASE + 5U)
+#define ESP_ERR_MAIN_APP_MQTT_FAIL           (ESP_ERR_MAIN_APP_BASE + 6U)
+#define ESP_ERR_MAIN_APP_SNTP_FAIL           (ESP_ERR_MAIN_APP_BASE + 7U)
+#define ESP_ERR_MAIN_APP_GRID_COMPOSER_FAIL  (ESP_ERR_MAIN_APP_BASE + 8U)
+#define ESP_ERR_MAIN_APP_SH1106_DISPLAY_FAIL (ESP_ERR_MAIN_APP_BASE + 9U)
+#define ESP_ERR_MAIN_APP_TSL2591_FAIL        (ESP_ERR_MAIN_APP_BASE + 10U)
+#define ESP_ERR_MAIN_APP_BMP180_FAIL         (ESP_ERR_MAIN_APP_BASE + 11U)
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

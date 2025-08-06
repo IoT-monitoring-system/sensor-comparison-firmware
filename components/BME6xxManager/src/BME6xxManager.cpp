@@ -3,6 +3,8 @@
 
 #include <utility>
 
+#include "esp_log.h"
+
 static const char *TAG_BME6XX_MANAGER = "BME6xxManager";
 
 #ifdef ESP_PLATFORM
@@ -33,14 +35,14 @@ esp_err_t BME6xxManager::addSensor(
     return ESP_ERR_MAX_NUM_SENSORS;
   }
 
-  uint32_t id = sensorToAdd.bme6xxGetUniqueId();
-  if (sensorToAdd.bme6xxCheckStatus() != BME6xxStatus::OK)
+  uint32_t id = sensorToAdd.GetUniqueId();
+  if (sensorToAdd.CheckStatus() != BME6xxStatus::OK)
     return ESP_ERR_BME6XX_DRIVER_ERROR;
 
   if (performSelftest) {
     ESP_LOGW(TAG_BME6XX_MANAGER, "Performing seltest check, sensor: %lu", id);
-    sensorToAdd.bme6xxSelftestCheck();
-    if (sensorToAdd.bme6xxCheckStatus() != BME6xxStatus::OK)
+    sensorToAdd.SelftestCheck();
+    if (sensorToAdd.CheckStatus() != BME6xxStatus::OK)
       return ESP_ERR_BME6XX_DRIVER_ERROR;
   }
 
@@ -159,7 +161,7 @@ esp_err_t BME6xxManager::begin() {
     if (sensors[i].stateData.state != BMESensorState::CONFIGURED)
       continue;
 
-    if (sensors[i].device->bme6xxCheckStatus() != BME6xxStatus::OK)
+    if (sensors[i].device->CheckStatus() != BME6xxStatus::OK)
       return ESP_ERR_BME6XX_DRIVER_ERROR;
 
     sensors[i].stateData.state = BMESensorState::RUNNING;
@@ -183,7 +185,7 @@ esp_err_t BME6xxManager::resetSensor(BME6xxSensor &sensor) {
   esp_err_t err = ESP_OK;
 
   auto it = std::find_if(sensors.begin(), sensors.end(), [&](const auto &s) {
-    return s.id == sensor.bme6xxGetUniqueId();
+    return s.id == sensor.GetUniqueId();
   });
 
   if (it != sensors.end()) {
@@ -243,9 +245,9 @@ esp_err_t BME6xxManager::sleepAll() {
     delay(100);
 
     uint8_t nFields = 0;
-    nFields = sensor.device->bme6xxFetchData();
+    nFields = sensor.device->FetchData();
     if (nFields) {
-      sensor.device->bme6xxGetAllData(sensor.stateData.lastData, nFields);
+      sensor.device->GetAllData(sensor.stateData.lastData, nFields);
       ESP_LOGW(TAG_BME6XX_MANAGER, "Drained %u leftover measurements", nFields);
     }
 
@@ -316,8 +318,8 @@ esp_err_t BME6xxManager::collectData(BMESensorData &sensData) {
 
   if (sensor->config.mode == BME6xxMode::PARALLEL) {
     uint8_t nFields, j = 0;
-    nFields = sensor->device->bme6xxFetchData();
-    sensor->device->bme6xxGetAllData(sensor->stateData.lastData, nFields);
+    nFields = sensor->device->FetchData();
+    sensor->device->GetAllData(sensor->stateData.lastData, nFields);
     for (uint8_t i = 0; i < nFields; i++) {
       if (sensor->stateData.lastData[i].status & GASM_VALID_MSK) {
         uint8_t deltaIndex = sensor->stateData.lastData[i].gas_index -
@@ -329,7 +331,7 @@ esp_err_t BME6xxManager::collectData(BMESensorData &sensData) {
           return ESP_ERR_SENSOR_DATA_MISS;
 
         sensData.data[j++] = sensor->stateData.lastData[i];
-        sensData.type = sensor->device->bme6xxGetType();
+        sensData.type = sensor->device->GetType();
 
         scheduler.updateHeatingStep(
             *sensor,

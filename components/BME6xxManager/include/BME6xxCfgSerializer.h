@@ -15,13 +15,10 @@
 
 class BME6xxCfgSerializer {
 public:
-  esp_err_t serializeConfig();
-  esp_err_t deserializeConfig(
-      FSFile &cfg,
-      std::vector<BMESensorConfig> &configurations);
-
-private:
-  JsonDocument configDoc;
+  esp_err_t
+  serializeConfig();
+  esp_err_t
+  deserializeConfig(FSFile &cfg, std::vector<BMESensorConfig> &configurations);
 };
 
 #endif

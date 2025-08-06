@@ -1,16 +1,9 @@
-# BasedOnStyle: LLVM
-# AlwaysBreakAfterReturnType: None
-# AlignAfterOpenBracket: AlwaysBreak
-# BinPackArguments: false
-# BinPackParameters: false
-# PenaltyBreakBeforeFirstCallParameter: 100
-# PenaltyReturnTypeOnItsOwnLine: 1000000
-# ExperimentalAutoDetectBinPacking: false
-# AllowAllParametersOfDeclarationOnNextLine: false
-
 BasedOnStyle: LLVM
-ColumnLimit: 120
-AllowAllParametersOfDeclarationOnNextLine: false
-AllowAllArgumentsOnNextLine: false
-BinPackParameters: false
+IndentWidth: 2
+ColumnLimit: 130
+AllowShortFunctionsOnASingleLine: None
 BreakBeforeBraces: Attach
+AlwaysBreakAfterReturnType: All
+ReturnTypeIndentation: SameLine
+AlignConsecutiveMacros: true
+AlignTrailingComments: true

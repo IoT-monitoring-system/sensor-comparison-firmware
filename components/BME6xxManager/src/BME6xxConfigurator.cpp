@@ -4,7 +4,7 @@
 const char *TAG = "BME6xxConfigurator";
 
 esp_err_t BME6xxConfigurator::checkStatus(BME6xxSensor &sensor) {
-  BME6xxStatus status = sensor.bme6xxCheckStatus();
+  BME6xxStatus status = sensor.CheckStatus();
 
   ESP_LOGI(TAG, "Sensor status: %i", static_cast<int8_t>(status));
 
@@ -19,7 +19,7 @@ BME6xxConfigurator::BME6xxConfigurator() {}
 esp_err_t BME6xxConfigurator::setMode(BMEMngrSensor &sensor, BME6xxMode mode) {
   esp_err_t err = ESP_OK;
 
-  sensor.device->bme6xxSetOpMode(mode);
+  sensor.device->SetOperationMode(mode);
   err = checkStatus(*sensor.device);
   if (err != ESP_OK)
     return ESP_FAIL;
@@ -52,7 +52,7 @@ esp_err_t BME6xxConfigurator::configureSensor(
 esp_err_t BME6xxConfigurator::resetSensor(BMEMngrSensor &sensor) {
   esp_err_t err = ESP_OK;
 
-  sensor.device->bme6xxSoftReset();
+  sensor.device->SoftReset();
 
   err = checkStatus(*sensor.device);
   if (err != ESP_OK)
@@ -70,10 +70,10 @@ esp_err_t BME6xxConfigurator::configureHeaterProfile(
     BMEHeaterProfile &profile) {
 
   uint32_t sharedHeatrDur =
-      profile.timeBase - (sensor.device->bme6xxGetMeasDur(sensor.config.mode) /
+      profile.timeBase - (sensor.device->GetMeasurementDuration(sensor.config.mode) /
                           static_cast<int64_t>(1000));
 
-  sensor.device->bme6xxSetHeaterProf(
+  sensor.device->SetHeaterProfile(
       profile.temperature, profile.duration, sharedHeatrDur, profile.length);
 
   return checkStatus(*sensor.device);
@@ -89,7 +89,7 @@ esp_err_t BME6xxConfigurator::resetHeaterProfile(BMEMngrSensor &sensor) {
 }
 
 esp_err_t BME6xxConfigurator::configureOS(BMEMngrSensor &sensor, BME6xxOS &os) {
-  sensor.device->bme6xxSetOS(os);
+  sensor.device->SetOversampling(os);
 
   return checkStatus(*sensor.device);
 }

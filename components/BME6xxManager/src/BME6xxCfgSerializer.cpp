@@ -5,11 +5,14 @@
 
 const char *TAG_BME6XX_CFG_SERIALIZER = "BME6xxCfgSerializer";
 
-esp_err_t BME6xxCfgSerializer::serializeConfig() { return ESP_FAIL; }
+esp_err_t
+BME6xxCfgSerializer::serializeConfig() {
+  return ESP_FAIL;
+}
 
-esp_err_t BME6xxCfgSerializer::deserializeConfig(
-    FSFile &cfg,
-    std::vector<BMESensorConfig> &configurations) {
+esp_err_t
+BME6xxCfgSerializer::deserializeConfig(FSFile &cfg, std::vector<BMESensorConfig> &configurations) {
+  JsonDocument configDoc;
 
   DeserializationError error = deserializeJson(configDoc, cfg);
 
@@ -17,20 +20,15 @@ esp_err_t BME6xxCfgSerializer::deserializeConfig(
     return ESP_ERR_JSON_DESERIAL_ERROR;
   }
 
-  JsonArray devCfgs =
-      configDoc["configBody"]["sensorConfigurations"].as<JsonArray>();
+  JsonArray devCfgs = configDoc["configBody"]["sensorConfigurations"].as<JsonArray>();
 
-  ESP_LOGI(
-      TAG_BME6XX_CFG_SERIALIZER,
-      "Loading %u sensor configurations",
-      devCfgs.size());
+  ESP_LOGI(TAG_BME6XX_CFG_SERIALIZER, "Loading %u sensor configurations", devCfgs.size());
 
   if (configurations.size() > devCfgs.size())
     return ESP_ERR_CONFIG_FILE_ERROR;
 
   // Get all heating profiles
-  JsonArray heaterProfilesJson =
-      configDoc["configBody"]["heaterProfiles"].as<JsonArray>();
+  JsonArray heaterProfilesJson = configDoc["configBody"]["heaterProfiles"].as<JsonArray>();
   BMEHeaterProfile heaterProfiles[heaterProfilesJson.size()];
 
   uint16_t dur = 0;
@@ -38,16 +36,13 @@ esp_err_t BME6xxCfgSerializer::deserializeConfig(
   for (uint8_t i = 0; i < heaterProfilesJson.size(); i++) {
     heaterProfiles[i].id = heaterProfilesJson[i]["id"].as<std::string>();
 
-    heaterProfiles[i].length =
-        heaterProfilesJson[i]["temperatureTimeVectors"].size();
+    heaterProfiles[i].length = heaterProfilesJson[i]["temperatureTimeVectors"].size();
     heaterProfiles[i].timeBase = heaterProfilesJson[i]["timeBase"];
     heaterProfiles[i].heatCycleDuration = 0;
 
     for (uint8_t j = 0; j < heaterProfiles[i].length; j++) {
-      temp =
-          heaterProfilesJson[i]["temperatureTimeVectors"][j][0].as<uint16_t>();
-      dur =
-          heaterProfilesJson[i]["temperatureTimeVectors"][j][1].as<uint16_t>();
+      temp = heaterProfilesJson[i]["temperatureTimeVectors"][j][0].as<uint16_t>();
+      dur = heaterProfilesJson[i]["temperatureTimeVectors"][j][1].as<uint16_t>();
 
       heaterProfiles[i].temperature[j] = temp;
       heaterProfiles[i].duration[j] = dur;
@@ -56,16 +51,13 @@ esp_err_t BME6xxCfgSerializer::deserializeConfig(
     }
   }
 
-  JsonArray dutyCycleProfilesJson =
-      configDoc["configBody"]["dutyCycleProfiles"].as<JsonArray>();
+  JsonArray dutyCycleProfilesJson = configDoc["configBody"]["dutyCycleProfiles"].as<JsonArray>();
   BMEDutyCycleProfile dutyCycleProfiles[dutyCycleProfilesJson.size()];
 
   for (uint8_t i = 0; i < dutyCycleProfilesJson.size(); i++) {
     dutyCycleProfiles[i].id = dutyCycleProfilesJson[i]["id"].as<std::string>();
-    dutyCycleProfiles[i].numScans =
-        dutyCycleProfilesJson[i]["numberScanningCycles"].as<uint8_t>();
-    dutyCycleProfiles[i].numSleeps =
-        dutyCycleProfilesJson[i]["numberSleepingCycles"].as<uint8_t>();
+    dutyCycleProfiles[i].numScans = dutyCycleProfilesJson[i]["numberScanningCycles"].as<uint8_t>();
+    dutyCycleProfiles[i].numSleeps = dutyCycleProfilesJson[i]["numberSleepingCycles"].as<uint8_t>();
   }
 
   /* Number of duty cycle profiles, heater profiles and number of configured
@@ -77,21 +69,18 @@ esp_err_t BME6xxCfgSerializer::deserializeConfig(
     }
 
     for (uint8_t j = 0; j < heaterProfilesJson.size(); j++) {
-      if (devCfgs[i]["heaterProfile"].as<std::string>() ==
-          heaterProfiles[j].id) {
+      if (devCfgs[i]["heaterProfile"].as<std::string>() == heaterProfiles[j].id) {
         configurations[i].heaterProfile = heaterProfiles[j];
       }
     }
     for (uint8_t j = 0; j < dutyCycleProfilesJson.size(); j++) {
-      if (devCfgs[i]["dutyCycleProfile"].as<std::string>() ==
-          dutyCycleProfiles[j].id) {
+      if (devCfgs[i]["dutyCycleProfile"].as<std::string>() == dutyCycleProfiles[j].id) {
         configurations[i].dutyCycleProfile = dutyCycleProfiles[j];
       }
     }
 
     configurations[i].dutyCycleProfile.sleepDuration =
-        configurations[i].dutyCycleProfile.numSleeps *
-        configurations[i].heaterProfile.heatCycleDuration;
+        configurations[i].dutyCycleProfile.numSleeps * configurations[i].heaterProfile.heatCycleDuration;
   }
 
   return ESP_OK;

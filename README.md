@@ -1,1 +1,0 @@
-# smart-dog-collar_tracker

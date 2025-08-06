@@ -1,0 +1,4 @@
+dependencies:
+  idf: '>=5.0'
+description: CBOR sensor encoder
+version: 0.0.1

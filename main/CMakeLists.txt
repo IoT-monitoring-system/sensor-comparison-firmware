@@ -1,5 +1,13 @@
-FILE(GLOB_RECURSE app_sources ${CMAKE_SOURCE_DIR}/main/*.*)
+file(GLOB_RECURSE APP_SRCS
+  "*.*"
+)
 
-idf_component_register(SRCS ${app_sources} INCLUDE_DIRS "." REQUIRES RTClib MeasurementModule EventSystem BME6xxManager FSManager BME68xLibrary BME69xLibrary bblanchon__arduinojson MQTTClient)
+list(APPEND INCLUDE_DIRS
+  "."
+)
 
-littlefs_create_partition_image(littlefs littlefs FLASH_IN_PROJECT)
+idf_component_register(
+  SRCS ${APP_SRCS}
+  INCLUDE_DIRS ${INCLUDE_DIRS}
+  REQUIRES
+)

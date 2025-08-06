@@ -1,23 +1,16 @@
 dependencies:
-  idf: ">=5.1,<5.2"
-  arduino:
-    git: https://github.com/xl9p/arduino-esp32.git
-    version: i2c_mutex_mod
-  Adafruit_BusIO:
-    git: https://github.com/xl9p/Adafruit_BusIO.git
-    version: modified
-  Adafruit_INA260:
-    git: https://github.com/xl9p/Adafruit_INA260.git
-    version: master
-  SparkFun_ADXL345:
-    git: https://github.com/xl9p/SparkFun_ADXL345_Arduino_Library.git
-    version: i2c_custom_mod
-  Adafruit_NeoPixel:
-    git: git@github.com:xl9p/Adafruit_NeoPixel.git
-    version: v1.12.3_with_build_files
-  BME68xLibrary:
-    git: https://github.com/xl9p/Bosch-BME68x-Library.git
-    version: modified
-  BME69xLibrary:
-    git: https://github.com/xl9p/BME69xLibrary.git
-    version: main
+  idf: '>=5.3,<5.5'
+  espressif/arduino-esp32: ^3.2.1
+  bblanchon/arduinojson: ^7.4.2
+  BME69xLibrary: ^0.0.1
+  BME68xLibrary: ^0.0.1
+  Adafruit_BusIO: ^0.0.1
+  Adafruit_Sensor: ^0.0.1
+  Adafruit_SH110x: ^0.0.1
+  Adafruit-GFX-Library: ^0.0.1
+  U8g2_for_Adafruit_GFX: ^0.0.1
+  grid_composer: ^0.0.1
+  cbor_sensor_encoder: ^0.0.1
+  mqtt_module: ^0.0.1
+  adc_module: ^0.0.1
+  sntp_module: ^0.0.1

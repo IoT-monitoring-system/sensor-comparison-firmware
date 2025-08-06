@@ -1,16 +1,19 @@
-cmake_minimum_required(VERSION 3.13)
+file(GLOB_RECURSE FSMANAGER_SRC
+  "src/*.*"
+)
+
+list(APPEND INCLUDE_DIRS
+  "include"
+)
 
 if(ESP_PLATFORM)
-  file(GLOB_RECURSE FSManager
-    "*.*"
-  )
-
   idf_component_register(
-    SRCS ${FSManager}
-    INCLUDE_DIRS "include"
-    REQUIRES arduino bblanchon__arduinojson
+    SRCS ${FSMANAGER_SRC}
+    INCLUDE_DIRS ${INCLUDE_DIRS}
+    REQUIRES arduino-esp32 bblanchon__arduinojson
   )
 
   return()
 endif()
 
+project(FSManager)

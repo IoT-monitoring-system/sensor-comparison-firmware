@@ -1,16 +1,20 @@
-cmake_minimum_required(VERSION 3.13)
+file(GLOB_RECURSE BME6XXMANAGER_SRC
+  "src/*.*"
+)
+
+list(APPEND INCLUDE_DIRS
+  "include"
+)
 
 if(ESP_PLATFORM)
-  file(GLOB_RECURSE BME6xxManager
-    "src/*.*"
-  )
 
   idf_component_register(
-    SRCS ${BME6xxManager}
-    INCLUDE_DIRS "include"
-    REQUIRES arduino BME6xxSensor bblanchon__arduinojson FSManager
+    SRCS ${BME6XXMANAGER_SRC}
+    INCLUDE_DIRS ${INCLUDE_DIRS}
+    REQUIRES arduino-esp32 bblanchon__arduinojson FSManager BME6xxSensor
   )
   
   return()
 endif()
 
+project(BME6xxManager)

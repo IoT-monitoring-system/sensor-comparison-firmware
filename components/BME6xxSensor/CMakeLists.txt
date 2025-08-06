@@ -1,16 +1,20 @@
-cmake_minimum_required(VERSION 3.13)
+file(GLOB_RECURSE BME6XXSENSOR_SRC
+  "include"
+)
+
+list(APPEND INCLUDE_DIRS
+  "include"
+)
 
 if(ESP_PLATFORM)
-  file(GLOB_RECURSE BME6xxSensor
-    "*.cpp"
-  )
 
   idf_component_register(
-    SRCS ${BME6xxSensor}
-    INCLUDE_DIRS "include"
-    REQUIRES arduino BME68xLibrary BME69xLibrary
+    SRCS ${BME6XXSENSOR_SRC}
+    INCLUDE_DIRS ${INCLUDE_DIRS}
+    REQUIRES
   )
-
+  
   return()
 endif()
 
+project(BME6xxSensor)

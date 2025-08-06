@@ -1,19 +1,25 @@
 {
 	"name": "ESP-IDF",
 	"build": {
-		"dockerfile": "Dockerfile"
+		"dockerfile": "Dockerfile",
+		"args": {
+			"DOCKER_TAG": "release-v5.4"
+		}
 	},
 	"customizations": {
 		"vscode": {
 			"settings": {
+				"idf.gitPath": "/usr/bin/git",
 				"idf.showOnboardingOnInit": false,
-				"idf.toolsPath": "/opt/esp",
 				"idf.espIdfPath": "/opt/esp/idf",
-				"terminal.integrated.shell.linux": "/bin/bash"
+				"idf.toolsPath": "/opt/esp",
+				"terminal.integrated.defaultProfile.linux": "bash"
 			},
 			"extensions": [
 				"espressif.esp-idf-extension",
-				"ms-vscode.cmake-tools"
+				"espressif.esp-idf-web",
+				"ms-vscode.cmake-tools",
+				"ms-vscode.cpptools-extension-pack"
 			]
 		}
 	},
@@ -26,8 +32,8 @@
 		"/etc/udev/rules.d:/etc/udev/rules.d"
 	],
 	"mounts": [
-		"source=vscode-${localWorkspaceFolderBasename}-extensions,target=/root/.vscode-server/extensions,type=volume",
-		"source=vscode-${localWorkspaceFolderBasename}-userdata,target=/root/.vscode-server/userdata,type=volume",
+		"source=vscode-${localEnv:PROJECT_ID}-extensions,target=/root/.vscode-server/extensions,type=volume",
+		"source=vscode-${localEnv:PROJECT_ID}-userdata,target=/root/.vscode-server/userdata,type=volume",
 		"source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached"
 	]
 }

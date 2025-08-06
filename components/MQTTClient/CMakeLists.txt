@@ -1,16 +1,20 @@
-cmake_minimum_required(VERSION 3.13)
+file(GLOB_RECURSE MQTT_CLIENT_SRC
+  "src/*.*"
+)
+
+list(APPEND INCLUDE_DIRS
+  "include"
+)
+
 
 if(ESP_PLATFORM)
-  file(GLOB_RECURSE MQTTClient
-    "src/*.*"
-  )
-
   idf_component_register(
-    SRCS ${MQTTClient}
-    INCLUDE_DIRS "include"
+    SRCS ${MQTT_CLIENT_SRC}
+    INCLUDE_DIRS ${INCLUDE_DIRS}
     REQUIRES esp_event mqtt
   )
-  
+
   return()
 endif()
 
+project(MQTTClient)

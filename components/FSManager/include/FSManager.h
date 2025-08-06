@@ -1,6 +1,7 @@
 #pragma once
-#ifndef DATALOGGER_H
-#define DATALOGGER_H
+#ifndef FSMANAGER_H
+#define FSMANAGER_H
+
 #include "FS.h"
 #include <Arduino.h>
 
