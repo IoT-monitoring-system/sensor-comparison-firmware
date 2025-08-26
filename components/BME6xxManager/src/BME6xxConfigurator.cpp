@@ -1,12 +1,12 @@
 #include "BME6xxConfigurator.h"
 #include "esp_log.h"
 
-const char *TAG = "BME6xxConfigurator";
+const char *TAG_BME6XX_CFG_CONFIGURATOR = "BME6xxConfigurator";
 
 esp_err_t BME6xxConfigurator::checkStatus(BME6xxSensor &sensor) {
   BME6xxStatus status = sensor.CheckStatus();
 
-  ESP_LOGI(TAG, "Sensor status: %i", static_cast<int8_t>(status));
+  ESP_LOGD(TAG_BME6XX_CFG_CONFIGURATOR, "Sensor status: %i", static_cast<int8_t>(status));
 
   if (status != BME6xxStatus::OK)
     return ESP_FAIL;

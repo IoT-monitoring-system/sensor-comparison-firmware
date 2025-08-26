@@ -14,9 +14,9 @@ const uint8_t SENSOR_WAKE_UP_TIME_OFFSET = 10;
 esp_err_t BME6xxScheduler::initialize() { return ESP_OK; }
 
 esp_err_t BME6xxScheduler::resetScheduleData(BMEMngrSensor &sensor) {
-  sensor.scheduleData.dutyCycleIndex = 0;
-  sensor.scheduleData.heaterIndex = 0;
-  sensor.scheduleData.wakeUpTime = 0;
+  sensor.scheduleInfo.dutyCycleIndex = 0;
+  sensor.scheduleInfo.heaterIndex = 0;
+  sensor.scheduleInfo.wakeUpTime = 0;
 
   return ESP_OK;
 }
@@ -43,8 +43,8 @@ bool BME6xxScheduler::selectNextSensor(
     //     sensors[i].scheduleData.wakeUpTime,
     //     timestamp_millis());
     if ((sensors[i].config.mode == mode) &&
-        (sensors[i].scheduleData.wakeUpTime < wakeUpTime)) {
-      wakeUpTime = sensors[i].scheduleData.wakeUpTime;
+        (sensors[i].scheduleInfo.wakeUpTime < wakeUpTime)) {
+      wakeUpTime = sensors[i].scheduleInfo.wakeUpTime;
       num = i;
     }
   }
@@ -69,8 +69,8 @@ esp_err_t BME6xxScheduler::scheduleWakeUp(
     uint64_t wakeUpTime,
     uint8_t nextHeaterIndex) {
 
-  sensor.scheduleData.heaterIndex = nextHeaterIndex;
-  sensor.scheduleData.wakeUpTime = wakeUpTime;
+  sensor.scheduleInfo.heaterIndex = nextHeaterIndex;
+  sensor.scheduleInfo.wakeUpTime = wakeUpTime;
   return ESP_OK;
 }
 esp_err_t BME6xxScheduler::scheduleWakeUpShared(
@@ -99,13 +99,13 @@ esp_err_t BME6xxScheduler::updateHeatingStep(
 
   uint64_t nextWakeUp = timestamp_millis() + GAS_WAIT_SHARED;
 
-  if (sensor.scheduleData.heaterIndex == sensor.config.heaterProfile.length) {
-    sensor.scheduleData.heaterIndex = 0;
-    sensor.scheduleData.dutyCycleIndex++;
+  if (sensor.scheduleInfo.heaterIndex == sensor.config.heaterProfile.length) {
+    sensor.scheduleInfo.heaterIndex = 0;
+    sensor.scheduleInfo.dutyCycleIndex++;
 
-    if (sensor.scheduleData.dutyCycleIndex >=
+    if (sensor.scheduleInfo.dutyCycleIndex >=
         sensor.config.dutyCycleProfile.numScans) {
-      sensor.scheduleData.dutyCycleIndex = 0;
+      sensor.scheduleInfo.dutyCycleIndex = 0;
 
       err = configurator.setMode(sensor, BME6xxMode::SLEEP);
       if (err != ESP_OK)
@@ -135,18 +135,18 @@ esp_err_t BME6xxScheduler::updateHeatingStep(
   uint8_t nextHeaterIndex = currentHeaterIndex + 1;
   if (nextHeaterIndex == sensor.config.heaterProfile.length) {
     nextHeaterIndex = 0;
-    sensor.scheduleData.dutyCycleIndex++;
+    sensor.scheduleInfo.dutyCycleIndex++;
 
-    ESP_LOGI(
+    ESP_LOGD(
         (char *)"BME6xxScheduler",
         "Sensor: %lu; Scan cycle finished, number scanning cycles %u/%u",
         sensor.id,
-        sensor.scheduleData.dutyCycleIndex,
+        sensor.scheduleInfo.dutyCycleIndex,
         sensor.config.dutyCycleProfile.numScans);
 
-    if (sensor.scheduleData.dutyCycleIndex >=
+    if (sensor.scheduleInfo.dutyCycleIndex >=
         sensor.config.dutyCycleProfile.numScans) {
-      sensor.scheduleData.dutyCycleIndex = 0;
+      sensor.scheduleInfo.dutyCycleIndex = 0;
 
       err = configurator.setMode(sensor, BME6xxMode::SLEEP);
       if (err != ESP_OK)
@@ -157,7 +157,7 @@ esp_err_t BME6xxScheduler::updateHeatingStep(
       if (err != ESP_OK)
         return err;
 
-      ESP_LOGI(
+      ESP_LOGD(
           (char *)"BME6xxScheduler",
           "Sensor: %lu; Sleeping for %llums; Wake up time: %llu",
           sensor.id,

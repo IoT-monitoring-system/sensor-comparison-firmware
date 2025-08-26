@@ -50,9 +50,9 @@ esp_err_t BME6xxManager::addSensor(
       .id = id,
       .device = &sensorToAdd,
       .config = BMESensorConfig{},
-      .stateData = BMESensorStateData{},
-      .scheduleData = BMESensorScheduleData{}};
-  sensor.stateData.state = BMESensorState::INITIALIZED;
+      .stateInfo = BMESensorStateInfo{},
+      .scheduleInfo = BMESensorScheduleInfo{}};
+  sensor.stateInfo.state = BMESensorState::INITIALIZED;
 
   sensors.push_back(std::move(sensor));
 
@@ -78,7 +78,7 @@ esp_err_t BME6xxManager::configure(FSFile &configFile) {
   if (!configFile.isValid())
     return ESP_ERR_CONFIG_FILE_ERROR;
 
-  ESP_LOGI(
+  ESP_LOGD(
       TAG_BME6XX_MANAGER,
       "Loading configuration file: %s; File size: %lu",
       configFile.getFileName().c_str(),
@@ -92,10 +92,10 @@ esp_err_t BME6xxManager::configure(FSFile &configFile) {
     return err;
 
   for (auto cfg : configurations) {
-    ESP_LOGW(TAG_BME6XX_MANAGER, "Configuration for sensor:");
-    ESP_LOGW(TAG_BME6XX_MANAGER, "Mode: %u", static_cast<uint8_t>(cfg.mode));
+    ESP_LOGD(TAG_BME6XX_MANAGER, "Configuration for sensor:");
+    ESP_LOGD(TAG_BME6XX_MANAGER, "Mode: %u", static_cast<uint8_t>(cfg.mode));
 
-    ESP_LOGW(
+    ESP_LOGD(
         TAG_BME6XX_MANAGER,
         "Heater Profile: %s; Length: %u; Time Base: %u; Scan Cycle Duration: "
         "%llu; ",
@@ -105,7 +105,7 @@ esp_err_t BME6xxManager::configure(FSFile &configFile) {
         cfg.heaterProfile.heatCycleDuration);
 
     for (uint8_t i = 0; i < cfg.heaterProfile.length; i++) {
-      ESP_LOGW(
+      ESP_LOGD(
           TAG_BME6XX_MANAGER,
           "Step: %u; Temperature: %u; Time: %u",
           i,
@@ -113,7 +113,7 @@ esp_err_t BME6xxManager::configure(FSFile &configFile) {
           cfg.heaterProfile.duration[i]);
     }
 
-    ESP_LOGW(
+    ESP_LOGD(
         TAG_BME6XX_MANAGER,
         "Duty Cycle Profile: %s; Number Scan Cycles: %u; Number Sleep Cycles: "
         "%u; Total Sleep Duration: %llu",
@@ -126,7 +126,7 @@ esp_err_t BME6xxManager::configure(FSFile &configFile) {
   for (uint8_t i = 0; i < sensors.size(); i++) {
     if (sensors[i].device == nullptr)
       return ESP_ERR_SENSOR_INDEX_ERROR;
-    if (sensors[i].stateData.state == BMESensorState::INVALID)
+    if (sensors[i].stateInfo.state == BMESensorState::INVALID)
       continue;
 
     err = resetSensor(sensors[i]);
@@ -141,7 +141,7 @@ esp_err_t BME6xxManager::configure(FSFile &configFile) {
     if (err != ESP_OK)
       return err;
 
-    sensors[i].stateData.state = BMESensorState::CONFIGURED;
+    sensors[i].stateInfo.state = BMESensorState::CONFIGURED;
   }
 
   state = BMEMngrState::CONFIGURED;
@@ -158,13 +158,13 @@ esp_err_t BME6xxManager::begin() {
     return ESP_ERR_BME_MNGR_STATE_INVALID;
 
   for (uint8_t i = 0; i < sensors.size(); i++) {
-    if (sensors[i].stateData.state != BMESensorState::CONFIGURED)
+    if (sensors[i].stateInfo.state != BMESensorState::CONFIGURED)
       continue;
 
     if (sensors[i].device->CheckStatus() != BME6xxStatus::OK)
       return ESP_ERR_BME6XX_DRIVER_ERROR;
 
-    sensors[i].stateData.state = BMESensorState::RUNNING;
+    sensors[i].stateInfo.state = BMESensorState::RUNNING;
   }
 
   state = BMEMngrState::RUNNING;
@@ -173,11 +173,11 @@ esp_err_t BME6xxManager::begin() {
 }
 
 esp_err_t BME6xxManager::resetSensorState(BMEMngrSensor &sensor) {
-  sensor.stateData.state = BMESensorState::INITIALIZED;
+  sensor.stateInfo.state = BMESensorState::INITIALIZED;
   return ESP_OK;
 }
 esp_err_t BME6xxManager::resetSensorData(BMEMngrSensor &sensor) {
-  memset(sensor.stateData.lastData, 0, sizeof(sensor.stateData.lastData));
+  memset(sensor.stateInfo.lastData, 0, sizeof(sensor.stateInfo.lastData));
   return ESP_OK;
 }
 
@@ -247,8 +247,8 @@ esp_err_t BME6xxManager::sleepAll() {
     uint8_t nFields = 0;
     nFields = sensor.device->FetchData();
     if (nFields) {
-      sensor.device->GetAllData(sensor.stateData.lastData, nFields);
-      ESP_LOGW(TAG_BME6XX_MANAGER, "Drained %u leftover measurements", nFields);
+      sensor.device->GetAllData(sensor.stateInfo.lastData, nFields);
+      ESP_LOGD(TAG_BME6XX_MANAGER, "Drained %u leftover measurements", nFields);
     }
 
     err = scheduler.resetScheduleData(sensor);
@@ -281,7 +281,7 @@ esp_err_t BME6xxManager::collectData(BMESensorData &sensData) {
   if (err != ESP_OK)
     return err;
 
-  if (sensor->stateData.state != BMESensorState::RUNNING)
+  if (sensor->stateInfo.state != BMESensorState::RUNNING)
     return ESP_ERR_SENSOR_STATE_INVALID;
 
   resetSensorData(*sensor);
@@ -294,7 +294,7 @@ esp_err_t BME6xxManager::collectData(BMESensorData &sensData) {
   //     %u", static_cast<uint8_t>(sensor->id), sensor->scheduleData.wakeUpTime,
   //     timestamp,
   //     static_cast<uint8_t>(sensor->config.getMode()));
-  if (timestamp >= sensor->scheduleData.wakeUpTime &&
+  if (timestamp >= sensor->scheduleInfo.wakeUpTime &&
       sensor->config.mode == BME6xxMode::SLEEP) {
 
     err = resetSensorData(*sensor);
@@ -313,29 +313,29 @@ esp_err_t BME6xxManager::collectData(BMESensorData &sensData) {
     if (err != ESP_OK)
       return err;
 
-    return ESP_OK;
+    return ESP_ERR_SENSOR_NO_NEW_DATA;
   }
 
   if (sensor->config.mode == BME6xxMode::PARALLEL) {
     uint8_t nFields, j = 0;
     nFields = sensor->device->FetchData();
-    sensor->device->GetAllData(sensor->stateData.lastData, nFields);
+    sensor->device->GetAllData(sensor->stateInfo.lastData, nFields);
     for (uint8_t i = 0; i < nFields; i++) {
-      if (sensor->stateData.lastData[i].status & GASM_VALID_MSK) {
-        uint8_t deltaIndex = sensor->stateData.lastData[i].gas_index -
-                             sensor->scheduleData.heaterIndex;
+      if (sensor->stateInfo.lastData[i].status & GASM_VALID_MSK) {
+        uint8_t deltaIndex = sensor->stateInfo.lastData[i].gas_index -
+                             sensor->scheduleInfo.heaterIndex;
 
         if (deltaIndex > sensor->config.heaterProfile.length)
           continue;
         if (deltaIndex != 0)
           return ESP_ERR_SENSOR_DATA_MISS;
 
-        sensData.data[j++] = sensor->stateData.lastData[i];
+        sensData.data[j++] = sensor->stateInfo.lastData[i];
         sensData.type = sensor->device->GetType();
 
         scheduler.updateHeatingStep(
             *sensor,
-            sensor->stateData.lastData[i].gas_index,
+            sensor->stateInfo.lastData[i].gas_index,
             timestamp,
             configurator);
       } else {
@@ -346,7 +346,7 @@ esp_err_t BME6xxManager::collectData(BMESensorData &sensData) {
 
     if (sensData.dataLen == 0) {
       scheduler.scheduleWakeUpShared(
-          *sensor, timestamp, sensor->scheduleData.heaterIndex);
+          *sensor, timestamp, sensor->scheduleInfo.heaterIndex);
       return ESP_ERR_SENSOR_NO_NEW_DATA;
     }
   }

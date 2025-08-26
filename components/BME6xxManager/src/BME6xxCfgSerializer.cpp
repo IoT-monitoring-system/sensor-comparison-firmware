@@ -22,7 +22,7 @@ BME6xxCfgSerializer::deserializeConfig(FSFile &cfg, std::vector<BMESensorConfig>
 
   JsonArray devCfgs = configDoc["configBody"]["sensorConfigurations"].as<JsonArray>();
 
-  ESP_LOGI(TAG_BME6XX_CFG_SERIALIZER, "Loading %u sensor configurations", devCfgs.size());
+  ESP_LOGD(TAG_BME6XX_CFG_SERIALIZER, "Loading %u sensor configurations", devCfgs.size());
 
   if (configurations.size() > devCfgs.size())
     return ESP_ERR_CONFIG_FILE_ERROR;
