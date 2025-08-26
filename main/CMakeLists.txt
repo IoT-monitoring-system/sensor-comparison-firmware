@@ -11,3 +11,5 @@ idf_component_register(
   INCLUDE_DIRS ${INCLUDE_DIRS}
   REQUIRES
 )
+
+littlefs_create_partition_image(littlefs littlefs FLASH_IN_PROJECT)
