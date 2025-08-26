@@ -46,3 +46,7 @@
 	path = components/RTClib
 	url = git@github.com:xl9p/RTClib.git
 	branch = modified_build_files
+[submodule "components/ADS1X15"]
+	path = components/ADS1X15
+	url = git@github.com:xl9p/ADS1X15.git
+	branch = modified
