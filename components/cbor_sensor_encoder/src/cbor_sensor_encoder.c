@@ -20,13 +20,7 @@ encode_sensor_payload(const sensor_payload_t *payload, CborEncoder *sensors_arra
   for (size_t i = 0; i < payload->field_count; i++) {
     const sensor_field_t *field = &payload->fields[i];
 
-    // CborEncoder field_map;
-    // cbor_encoder_create_map(&fields_map, &field_map, 2);
-    //
     cbor_encode_text_stringz(&fields_map, field->name);
-
-    // cbor_encode_text_stringz(&field_map, "name");
-    // cbor_encode_text_stringz(&field_map, "value");
 
     switch (field->type) {
     case SENSOR_FIELD_DATATYPE_FLOAT:
@@ -51,8 +45,6 @@ encode_sensor_payload(const sensor_payload_t *payload, CborEncoder *sensors_arra
       cbor_encode_null(&fields_map);
       break;
     }
-
-    // cbor_encoder_close_container(&fields_map, &field_map);
   }
 
   cbor_encoder_close_container(&map, &fields_map);

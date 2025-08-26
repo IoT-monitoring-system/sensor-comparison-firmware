@@ -12,7 +12,7 @@ extern "C" {
 
 #define SENSOR_NAME_MAX_LEN   16
 #define SENSOR_FIELD_NAME_LEN 16
-#define SENSOR_MAX_FIELDS     5
+#define SENSOR_MAX_FIELDS     10
 
 typedef enum {
   SENSOR_FIELD_DATATYPE_INVALID = 0,
