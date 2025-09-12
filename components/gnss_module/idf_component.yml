@@ -1,4 +1,0 @@
-dependencies:
-  idf: '>=5.0'
-description: GNSS Module
-version: 0.0.1
