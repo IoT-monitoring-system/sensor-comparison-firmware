@@ -7,13 +7,6 @@ dependencies:
   ADS1X15: ^0.0.1
   Adafruit_BusIO: ^0.0.1
   Adafruit_Sensor: ^0.0.1
-  Adafruit_SH110x: ^0.0.1
-  Adafruit-GFX-Library: ^0.0.1
-  U8g2_for_Adafruit_GFX: ^0.0.1
-  grid_composer: ^0.0.1
   cbor_sensor_encoder: ^0.0.1
-  alert_module: ^0.0.1
   mqtt_module: ^0.0.1
-  adc_module: ^0.0.1
   sntp_module: ^0.0.1
-  gnss_module: ^0.0.1

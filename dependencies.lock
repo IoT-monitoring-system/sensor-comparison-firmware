@@ -1,50 +1,32 @@
 dependencies:
-  Adafruit-GFX-Library:
+  ADS1X15:
     dependencies: []
     source:
-      path: /workspaces/node-firmware/components/Adafruit-GFX-Library
+      path: /workspaces/sensor-comparison-firmware/components/ADS1X15
       type: local
     version: 0.0.1
   Adafruit_BusIO:
     dependencies: []
     source:
-      path: /workspaces/node-firmware/components/Adafruit_BusIO
-      type: local
-    version: 0.0.1
-  Adafruit_SH110x:
-    dependencies: []
-    source:
-      path: /workspaces/node-firmware/components/Adafruit_SH110x
+      path: /workspaces/sensor-comparison-firmware/components/Adafruit_BusIO
       type: local
     version: 0.0.1
   Adafruit_Sensor:
     dependencies: []
     source:
-      path: /workspaces/node-firmware/components/Adafruit_Sensor
+      path: /workspaces/sensor-comparison-firmware/components/Adafruit_Sensor
       type: local
     version: 0.0.1
   BME68xLibrary:
     dependencies: []
     source:
-      path: /workspaces/node-firmware/components/BME68xLibrary
+      path: /workspaces/sensor-comparison-firmware/components/BME68xLibrary
       type: local
     version: 0.0.1
   BME69xLibrary:
     dependencies: []
     source:
-      path: /workspaces/node-firmware/components/BME69xLibrary
-      type: local
-    version: 0.0.1
-  U8g2_for_Adafruit_GFX:
-    dependencies: []
-    source:
-      path: /workspaces/node-firmware/components/U8g2_for_Adafruit_GFX
-      type: local
-    version: 0.0.1
-  adc_module:
-    dependencies: []
-    source:
-      path: /workspaces/node-firmware/components/adc_module
+      path: /workspaces/sensor-comparison-firmware/components/BME69xLibrary
       type: local
     version: 0.0.1
   bblanchon/arduinojson:
@@ -57,7 +39,7 @@ dependencies:
   cbor_sensor_encoder:
     dependencies: []
     source:
-      path: /workspaces/node-firmware/components/cbor_sensor_encoder
+      path: /workspaces/sensor-comparison-firmware/components/cbor_sensor_encoder
       type: local
     version: 0.0.1
   chmorgan/esp-libhelix-mp3:
@@ -404,7 +386,7 @@ dependencies:
       type: service
     version: 1.2.0
   espressif/esp_secure_cert_mgr:
-    component_hash: 95b490db6944b2a6b32d7af172bb52e5045fe1d37ac8e00f9edfdd0535d64f72
+    component_hash: 421cb5608b9c06c3747be15edde72d67f7f5c899dbabbcd836742df9af0e9134
     dependencies:
     - name: idf
       require: private
@@ -412,7 +394,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 2.5.1
+    version: 2.6.1
   espressif/jsmn:
     component_hash: d80350c41bbaa827c98a25b6072df00884e72f54885996fab4a4f0aebce6b6c3
     dependencies:
@@ -487,12 +469,6 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.4.6
-  grid_composer:
-    dependencies: []
-    source:
-      path: /workspaces/node-firmware/components/grid_composer
-      type: local
-    version: 0.0.1
   idf:
     source:
       type: idf
@@ -510,31 +486,27 @@ dependencies:
   mqtt_module:
     dependencies: []
     source:
-      path: /workspaces/node-firmware/components/mqtt_module
+      path: /workspaces/sensor-comparison-firmware/components/mqtt_module
       type: local
     version: 0.0.1
   sntp_module:
     dependencies: []
     source:
-      path: /workspaces/node-firmware/components/sntp_module
+      path: /workspaces/sensor-comparison-firmware/components/sntp_module
       type: local
     version: 0.0.1
 direct_dependencies:
 - bblanchon/arduinojson
-- espressif/Adafruit-GFX-Library
+- espressif/ADS1X15
 - espressif/Adafruit_BusIO
-- espressif/Adafruit_SH110x
 - espressif/Adafruit_Sensor
 - espressif/BME68xLibrary
 - espressif/BME69xLibrary
-- espressif/U8g2_for_Adafruit_GFX
-- espressif/adc_module
 - espressif/arduino-esp32
 - espressif/cbor_sensor_encoder
-- espressif/grid_composer
 - espressif/mqtt_module
 - espressif/sntp_module
 - idf
-manifest_hash: 5401fbcd59767224750a2816e7258e758203790c6e6986bdfbe12f852d39c5c7
+manifest_hash: 985b5f0cca4228ae7c28eda909610dc4587bcac00a361579f3fb0d73b7493431
 target: esp32s3
 version: 2.0.0
