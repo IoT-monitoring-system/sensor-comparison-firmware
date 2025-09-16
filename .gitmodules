@@ -2,22 +2,10 @@
 	path = components/BME69xLibrary
 	url = git@github.com:xl9p/BME69xLibrary.git
 	branch = main
-[submodule "components/Adafruit_Sensor"]
-	path = components/Adafruit_Sensor
-	url = git@github.com:xl9p/Adafruit_Sensor.git
-	branch = modified
 [submodule "components/BME68xLibrary"]
 	path = components/BME68xLibrary
 	url = git@github.com:xl9p/BME68xLibrary.git
 	branch = modified
-[submodule "components/Adafruit_BusIO"]
-	path = components/Adafruit_BusIO
-	url = git@github.com:xl9p/Adafruit_BusIO.git
-	branch = modified
-[submodule "components/Adafruit_NeoPixel"]
-	path = components/Adafruit_NeoPixel
-	url = git@github.com:xl9p/Adafruit_NeoPixel.git
-	branch = v1.12.3_with_build_files
 [submodule "components/RTClib"]
 	path = components/RTClib
 	url = git@github.com:xl9p/RTClib.git
